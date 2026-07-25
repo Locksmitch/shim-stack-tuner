@@ -54,6 +54,27 @@ header p {
     grid-template-columns: 1fr;
   }
 }
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.workspace-col {
+  min-width: 0;
+}
+.checklist {
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+  margin: 10px 0;
+}
+.checklist .field {
+  margin-bottom: 10px;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);

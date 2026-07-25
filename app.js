@@ -2102,7 +2102,10 @@ function deleteValveSetup() {
 /* ---- collapsible + draggable panels, saved layout ---- */
 const LAYOUT_KEY = 'sst_layout_v1';
 const COLLAPSE_KEY = 'sst_collapsed_v1';
-const DEFAULT_LAYOUT = { colLeft: ['p-geom', 'p-stack'], colRight: ['p-oil', 'p-calc'], colBottom: ['p-force'] };
+const DEFAULT_LAYOUT = { colLeft: ['p-geom'], colRight: ['p-advanced', 'p-calc'], colBottom: ['p-workspace'] };
+// The oil/shim-material panel is advanced/rarely-touched, so it starts collapsed —
+// both for a brand-new user (nothing in localStorage yet) and after "Reset layout".
+const DEFAULT_COLLAPSED = ['p-advanced'];
 
 function redrawAllVisuals() {
   drawShimRefDiagram();
@@ -2121,7 +2124,7 @@ function togglePanel(panel) {
   if (!panel.classList.contains('collapsed')) redrawAllVisuals(); // canvases need a redraw after being display:none
 }
 function applyCollapsed() {
-  const collapsed = lsGet(COLLAPSE_KEY) || [];
+  const collapsed = lsGet(COLLAPSE_KEY) || DEFAULT_COLLAPSED;
   collapsed.forEach((id) => {
     const p = document.getElementById(id);
     if (p) p.classList.add('collapsed');
@@ -2147,8 +2150,12 @@ function saveLayout() {
 function resetLayout() {
   applyLayout(DEFAULT_LAYOUT);
   document.querySelectorAll('.panel.collapsed').forEach((p) => p.classList.remove('collapsed'));
+  DEFAULT_COLLAPSED.forEach((id) => {
+    const p = document.getElementById(id);
+    if (p) p.classList.add('collapsed');
+  });
   lsSet(LAYOUT_KEY, DEFAULT_LAYOUT);
-  lsSet(COLLAPSE_KEY, []);
+  lsSet(COLLAPSE_KEY, DEFAULT_COLLAPSED);
   redrawAllVisuals();
 }
 
