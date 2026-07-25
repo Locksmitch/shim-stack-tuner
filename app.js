@@ -967,14 +967,20 @@ function drawStackAtSlider() {
   });
 
   const rLoadDisp = convLen(currentStack.rLoad, 'mm', resultUnit);
-  drawStackCanvas(bands, rLoadDisp);
+  const clampDisp = convLen(aMM, 'mm', resultUnit);
+  // The shaft/post the shims are actually threaded onto is sized by the shim ID (the
+  // hole in the shims themselves), not D.rod — a separate, unrelated dimension further
+  // up the damper at the seal. stackID is meant to stay <= clampDia (per the geometry
+  // panel's own hint text), so this normally doesn't overlap the clamp-diameter line.
+  const shaftDisp = convLen((currentGeom.stackID || 0) / 2, 'mm', resultUnit);
+  drawStackCanvas(bands, rLoadDisp, clampDisp, shaftDisp);
 }
 
-function drawStackCanvas(bands, rLoad) {
+function drawStackCanvas(bands, rLoad, clampR, shaftR) {
   const cv = document.getElementById('stackCanvas');
   const { ctx, w, h } = setupCanvas(cv);
   const pad = { l: 44, r: 16, t: 14, b: 26 };
-  let xMax = rLoad,
+  let xMax = Math.max(rLoad, clampR || 0),
     yMax = 1e-6;
   bands.forEach((b) => {
     xMax = Math.max(xMax, b.rs[b.rs.length - 1]);
@@ -994,6 +1000,15 @@ function drawStackCanvas(bands, rLoad) {
   );
   const X = (r) => pad.l + (w - pad.l - pad.r) * (r / xMax);
   const Y = (y) => h - pad.b - (h - pad.t - pad.b) * (y / yMax);
+
+  // the shaft the shims are threaded onto, drawn first so the stack sits in front of it
+  if (shaftR > 0) {
+    ctx.fillStyle = '#cfd8e3';
+    ctx.fillRect(X(0), pad.t, X(Math.min(shaftR, xMax)) - X(0), h - pad.t - pad.b);
+    ctx.fillStyle = '#5b6472';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('shaft', X(0) + 4, pad.t + 12);
+  }
 
   bands.forEach((b) => {
     // one smooth closed polygon per shim: along the bottom edge, back along the top edge
@@ -1016,6 +1031,18 @@ function drawStackCanvas(bands, rLoad) {
     ctx.stroke();
     ctx.setLineDash([]);
   });
+
+  if (clampR > 0) {
+    ctx.strokeStyle = '#5b6472';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(X(clampR), pad.t);
+    ctx.lineTo(X(clampR), h - pad.b);
+    ctx.stroke();
+    ctx.fillStyle = '#5b6472';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('clamp dia', X(clampR) + 4, h - pad.b - 4);
+  }
 
   ctx.strokeStyle = '#c0392b';
   ctx.setLineDash([4, 3]);
