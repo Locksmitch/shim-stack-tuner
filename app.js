@@ -1001,13 +1001,26 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
   const X = (r) => pad.l + (w - pad.l - pad.r) * (r / xMax);
   const Y = (y) => h - pad.b - (h - pad.t - pad.b) * (y / yMax);
 
-  // the shaft the shims are threaded onto, drawn first so the stack sits in front of it
+  // Both the shaft and the clamp are rigid — they never deflect, so they're drawn as a
+  // fixed-height band sitting beside the (potentially much taller, lifting) shim stack
+  // rather than spanning the full plot height, which would make the shaft look like it
+  // sits behind/above the stack instead of next to it.
+  const tallestShimH = bands.reduce((m, b) => Math.max(m, b.yT[0] - b.yB[0]), 1e-6);
+  const clampH = tallestShimH * 1.5;
+  const yBase = Y(0),
+    yTop = Y(clampH);
   if (shaftR > 0) {
     ctx.fillStyle = '#cfd8e3';
-    ctx.fillRect(X(0), pad.t, X(Math.min(shaftR, xMax)) - X(0), h - pad.t - pad.b);
-    ctx.fillStyle = '#5b6472';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('shaft', X(0) + 4, pad.t + 12);
+    ctx.fillRect(X(0), yTop, X(Math.min(shaftR, xMax)) - X(0), yBase - yTop);
+  }
+  ctx.fillStyle = '#5b6472';
+  ctx.font = '11px sans-serif';
+  ctx.fillText('shaft', X(0) + 4, pad.t + 12);
+
+  // clamp diameter — a relatively normal (if thicker) shim that never moves
+  if (clampR > shaftR) {
+    ctx.fillStyle = '#111318';
+    ctx.fillRect(X(shaftR), yTop, X(clampR) - X(shaftR), yBase - yTop);
   }
 
   bands.forEach((b) => {
@@ -1033,13 +1046,14 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
   });
 
   if (clampR > 0) {
-    ctx.strokeStyle = '#5b6472';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#111318';
+    ctx.setLineDash([4, 3]);
     ctx.beginPath();
     ctx.moveTo(X(clampR), pad.t);
     ctx.lineTo(X(clampR), h - pad.b);
     ctx.stroke();
-    ctx.fillStyle = '#5b6472';
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#111318';
     ctx.font = '11px sans-serif';
     ctx.fillText('clamp dia', X(clampR) + 4, h - pad.b - 4);
   }
