@@ -1,10 +1,3 @@
-/* the globals below are invoked from inline event handlers in index.html */
-/* exported setAllFieldUnits, onModUnitChange, switchResultUnit, onDirectCstChange,
-   removeShimRow, moveShimRow, duplicateShimRow, usableByOD, onProductChange,
-   onValveChange, addCatalogShim, saveValveGeom, loadFoxExample, loadCrossoverExample,
-   onLiveModeChange, pinCurrentCurve, clearPins, onAxisSettingChange, clearTarget,
-   onTargetToggle, optimizeToTarget, applyCandidate, clearSuggestions, saveConfig,
-   loadConfig, exportCSV, saveValveSetup, loadValveSetup, deleteValveSetup, resetLayout */
 
 /* =========================================================
    UNITS — length fields are PER-FIELD; force/velocity/modulus use one "result unit"
@@ -509,9 +502,9 @@ function addShimRow(count, diam, thickness, unit, isSpecial, float) {
     <td><input type="number" value="${diam ?? 30}" step="${lenStep}" class="cDiam"></td>
     <td><input type="number" value="${thickness ?? 0.25}" step="${thickStep}" class="cThick"></td>
     <td><input type="number" value="${float ?? 0}" step="${thickStep}" class="cFloat" title="0 = always engaged. Positive = gap that must close before this shim contributes."></td>
-    <td class="col-unit"><select class="rowUnit" data-unit="${u}" onchange="onRowUnitChange(this)"><option value="mm"${u === 'mm' ? ' selected' : ''}>mm</option><option value="in"${u === 'in' ? ' selected' : ''}>in</option></select></td>
+    <td class="col-unit"><select class="rowUnit" data-unit="${u}"><option value="mm"${u === 'mm' ? ' selected' : ''}>mm</option><option value="in"${u === 'in' ? ' selected' : ''}>in</option></select></td>
     <td class="col-remove">
-      <button class="small rowbtn" title="Move up (toward valve face)" onclick="moveShimRow(this,-1)">↑</button><button class="small rowbtn" title="Move down (toward clamp)" onclick="moveShimRow(this,1)">↓</button><button class="small rowbtn" title="Duplicate this row below" onclick="duplicateShimRow(this)">⧉</button><button class="small danger rowbtn" title="Remove row" onclick="removeShimRow(this)">✕</button>
+      <button class="small rowbtn" title="Move up (toward valve face)" data-action="up">↑</button><button class="small rowbtn" title="Move down (toward clamp)" data-action="down">↓</button><button class="small rowbtn" title="Duplicate this row below" data-action="dup">⧉</button><button class="small danger rowbtn" title="Remove row" data-action="remove">✕</button>
     </td>`;
   tbody.appendChild(tr);
   drawShimRefDiagram();
@@ -954,15 +947,6 @@ function usableShims(v) {
     (s) => Math.abs(s.id - v.shimID) < 1e-6 && s.od >= v.odMin - 1e-9 && s.od <= v.odMax + 1e-9,
   ).sort((a, b) => a.od - b.od || a.thk - b.thk);
 }
-function usableByOD(v) {
-  const m = new Map();
-  usableShims(v).forEach((s) => {
-    if (!m.has(s.od)) m.set(s.od, []);
-    m.get(s.od).push(s.thk);
-  });
-  return m;
-}
-
 /* ---- product/valve/tune selection ---- */
 let curProduct = 'fox38x2',
   curValveKey = 'rebound';
@@ -1041,7 +1025,7 @@ function renderCatalog() {
     chips.innerHTML = list
       .map(
         (s) =>
-          `<button class="small catchip" onclick="addCatalogShim(${s.od},${s.thk})" title="Add one ${s.od.toFixed(3)}in OD × ${s.thk.toFixed(4)}in shim">${s.od.toFixed(3)}<span style="opacity:.6">×</span>${s.thk.toFixed(4)}</button>`,
+          `<button class="small catchip" data-od="${s.od}" data-thk="${s.thk}" title="Add one ${s.od.toFixed(3)}in OD × ${s.thk.toFixed(4)}in shim">${s.od.toFixed(3)}<span style="opacity:.6">×</span>${s.thk.toFixed(4)}</button>`,
       )
       .join('');
   }
@@ -1193,29 +1177,6 @@ function initProductUX() {
   applyValveContext();
 }
 
-// compatibility shims for older call sites (pins, examples)
-const OLD_KEY_MAP = {
-  rebXLight: ['rebound', 'xlight'],
-  rebLight: ['rebound', 'light'],
-  rebMedPlus: ['rebound', 'medplus'],
-  rebFirm: ['rebound', 'firm'],
-  midLight: ['mid', 'light'],
-  midMedium: ['mid', 'medium'],
-  baseLight: ['base', 'light'],
-  baseFirm: ['base', 'firm'],
-};
-function loadFoxPreset(oldKey) {
-  const map = OLD_KEY_MAP[oldKey];
-  if (!map) return;
-  curValveKey = map[0];
-  document.getElementById('valveSel') && (document.getElementById('valveSel').value = curValveKey);
-  applyValveContext();
-  document.getElementById('tuneSel').value = map[1];
-  onTuneChange();
-}
-function loadFoxExample() {
-  loadFoxPreset('rebLight');
-}
 // label of the currently-selected stock tune (for pin auto-naming)
 function currentTuneLabel() {
   const v = currentValve();
@@ -2476,7 +2437,7 @@ function renderOptResults(Href, tolOver) {
         <span class="hint" style="margin:0;">fit ${fmtForce(convForce(c.err, 'mm', resultUnit), resultUnit)} ${uf} RMS · height ${c.hMM.toFixed(3)}mm ${flagChip(c.flag)}</span>
         <span style="flex:1"></span>
         <span class="hint" style="margin:0; font-family:ui-monospace,monospace;">${rowsTxt(c.rows)}</span>
-        <button class="small" onclick="applyCandidate(${i})">Apply to stack</button>
+        <button class="small applyCandidateBtn" data-idx="${i}">Apply to stack</button>
       </div>`,
       )
       .join('');
@@ -2878,13 +2839,34 @@ function wireStaticControls() {
 
 // init
 wireStaticControls();
-document.getElementById('shimBody').addEventListener('input', () => {
+const shimBody = document.getElementById('shimBody');
+shimBody.addEventListener('input', () => {
   drawShimRefDiagram();
   refreshCustomState();
 });
-document.getElementById('shimBody').addEventListener('change', () => {
+shimBody.addEventListener('change', (e) => {
+  if (e.target.matches('.rowUnit')) onRowUnitChange(e.target);
   drawShimRefDiagram();
   refreshCustomState();
+});
+shimBody.addEventListener('click', (e) => {
+  const btn = e.target.closest('.rowbtn');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === 'up') moveShimRow(btn, -1);
+  else if (action === 'down') moveShimRow(btn, 1);
+  else if (action === 'dup') duplicateShimRow(btn);
+  else if (action === 'remove') removeShimRow(btn);
+});
+document.getElementById('catalogChips').addEventListener('click', (e) => {
+  const btn = e.target.closest('.catchip');
+  if (!btn) return;
+  addCatalogShim(parseFloat(btn.dataset.od), parseFloat(btn.dataset.thk));
+});
+document.getElementById('optResults').addEventListener('click', (e) => {
+  const btn = e.target.closest('.applyCandidateBtn');
+  if (!btn) return;
+  applyCandidate(parseInt(btn.dataset.idx, 10));
 });
 document.getElementById('stackID').addEventListener('input', drawShimRefDiagram);
 document.getElementById('clampDia').addEventListener('input', drawShimRefDiagram);
