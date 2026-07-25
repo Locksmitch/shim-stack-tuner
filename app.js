@@ -2826,7 +2826,58 @@ function initPanelUX() {
   });
 }
 
+function wireStaticControls() {
+  document.querySelectorAll('.fieldUnit').forEach((sel) => {
+    sel.addEventListener('change', () => onFieldUnitChange(sel));
+  });
+  document.querySelectorAll('.modUnit').forEach((sel) => {
+    sel.addEventListener('change', () => onModUnitChange(sel));
+  });
+
+  const bindings = [
+    ['bulkUnit', 'change', (e) => setAllFieldUnits(e.target.value)],
+    ['resetLayoutBtn', 'click', () => resetLayout()],
+    ['valveSetups', 'change', (e) => loadValveSetup(e.target.value)],
+    ['saveValveSetupBtn', 'click', () => saveValveSetup()],
+    ['deleteValveSetupBtn', 'click', () => deleteValveSetup()],
+    ['forceSlider', 'input', () => drawStackAtSlider()],
+    ['addShimRowBtn', 'click', () => addShimRow()],
+    ['loadExampleBtn', 'click', () => loadExample()],
+    ['loadCrossoverBtn', 'click', () => loadCrossoverExample()],
+    ['prodSel', 'change', () => onProductChange()],
+    ['valveSel', 'change', () => onValveChange()],
+    ['tuneSel', 'change', () => onTuneChange()],
+    ['saveValveGeomBtn', 'click', () => saveValveGeom()],
+    ['viscMode', 'change', () => onViscModeChange()],
+    ['cst40', 'input', () => onDirectCstChange()],
+    ['cst100', 'input', () => onDirectCstChange()],
+    ['isoVG', 'input', () => onViscModeChange()],
+    ['saeWt', 'input', () => onViscModeChange()],
+    ['resultUnit', 'change', (e) => switchResultUnit(e.target.value)],
+    ['recalcBtn', 'click', () => runCalc()],
+    ['saveConfigBtn', 'click', () => saveConfig()],
+    ['loadConfigTriggerBtn', 'click', () => document.getElementById('loadFile').click()],
+    ['loadFile', 'change', loadConfig],
+    ['exportCSVBtn', 'click', () => exportCSV()],
+    ['liveMode', 'change', () => onLiveModeChange()],
+    ['axisMode', 'change', () => onAxisSettingChange()],
+    ['axisMinF', 'input', () => onAxisSettingChange()],
+    ['axisMaxF', 'input', () => onAxisSettingChange()],
+    ['xAxisMode', 'change', () => onAxisSettingChange()],
+    ['axisMaxU', 'input', () => onAxisSettingChange()],
+    ['pinCurveBtn', 'click', () => pinCurrentCurve()],
+    ['clearPinsBtn', 'click', () => clearPins()],
+    ['targetOn', 'change', () => onTargetToggle()],
+    ['resetTargetBtn', 'click', () => resetTargetToCurrent()],
+    ['clearTargetBtn', 'click', () => clearTarget()],
+    ['optBtn', 'click', () => optimizeToTarget()],
+    ['clearSuggestionsBtn', 'click', () => clearSuggestions()],
+  ];
+  bindings.forEach(([id, evt, fn]) => document.getElementById(id).addEventListener(evt, fn));
+}
+
 // init
+wireStaticControls();
 document.getElementById('shimBody').addEventListener('input', () => {
   drawShimRefDiagram();
   refreshCustomState();

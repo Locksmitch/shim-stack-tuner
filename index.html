@@ -18,13 +18,13 @@
 
   <div class="units-bar">
     <strong>Quick-set all dimension fields:</strong>
-    <select id="bulkUnit" onchange="setAllFieldUnits(this.value)">
+    <select id="bulkUnit">
       <option value="" selected disabled>choose…</option>
       <option value="mm">All metric — mm</option>
       <option value="in">All imperial — in</option>
     </select>
     <span class="hint">Every geometry &amp; shim field has its own mm/in dropdown, so you can mix parts from different manufacturers — a metric damper body with imperial shims, for example. This selector is just a bulk shortcut; individual fields always stay overridable.</span>
-    <button class="small" onclick="resetLayout()" title="Restore default tile positions and expand all tiles">Reset layout</button>
+    <button class="small" id="resetLayoutBtn" title="Restore default tile positions and expand all tiles">Reset layout</button>
   </div>
 
   <div class="panel about">
@@ -49,12 +49,12 @@
         <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Damper &amp; valve geometry</h2>
 
         <div class="btnrow" style="align-items:center; margin-top:0;">
-          <select id="valveSetups" style="width:auto; min-width:150px;" onchange="loadValveSetup(this.value)">
+          <select id="valveSetups" style="width:auto; min-width:150px;">
             <option value="" selected disabled>saved valve setups…</option>
           </select>
           <input type="text" id="valveSetupName" placeholder="setup name" style="width:130px;">
-          <button class="small" onclick="saveValveSetup()">Save setup</button>
-          <button class="small danger" onclick="deleteValveSetup()">Delete</button>
+          <button class="small" id="saveValveSetupBtn">Save setup</button>
+          <button class="small danger" id="deleteValveSetupBtn">Delete</button>
         </div>
         <p class="hint" id="valveSetupHint">Save this panel's damper/valve dimensions (plus valve type) under a name and reload them any time — stored by your browser on this computer, nothing uploaded. Survives closing the file.</p>
 
@@ -87,10 +87,10 @@
 
         <div class="row3">
           <div class="field"><label>Rod diameter D.rod</label>
-            <div class="unitpair"><input type="number" id="dRod" value="16" step="0.1"><select class="fieldUnit" data-for="dRod" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="dRod" value="16" step="0.1"><select class="fieldUnit" data-for="dRod" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>Valve/body diameter D.valve</label>
-            <div class="unitpair"><input type="number" id="dValve" value="50" step="0.1"><select class="fieldUnit" data-for="dValve" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="dValve" value="50" step="0.1"><select class="fieldUnit" data-for="dValve" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>Valve type</label>
             <select id="valveType">
@@ -109,19 +109,19 @@
 
         <div class="row4">
           <div class="field"><label>r.port, port inner radius</label>
-            <div class="unitpair"><input type="number" id="rPort" value="10.5" step="0.1"><select class="fieldUnit" data-for="rPort" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="rPort" value="10.5" step="0.1"><select class="fieldUnit" data-for="rPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>d.port, port radial length</label>
-            <div class="unitpair"><input type="number" id="dPort" value="9" step="0.1"><select class="fieldUnit" data-for="dPort" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="dPort" value="9" step="0.1"><select class="fieldUnit" data-for="dPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>w.port, port perimeter width</label>
-            <div class="unitpair"><input type="number" id="wPort" value="12" step="0.1"><select class="fieldUnit" data-for="wPort" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="wPort" value="12" step="0.1"><select class="fieldUnit" data-for="wPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1"></div>
         </div>
         <div class="row2">
           <div class="field"><label>d.thrt, throat dia — 0 = none</label>
-            <div class="unitpair"><input type="number" id="dThrt" value="0" step="0.1"><select class="fieldUnit" data-for="dThrt" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="dThrt" value="0" step="0.1"><select class="fieldUnit" data-for="dThrt" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
         </div>
@@ -136,17 +136,17 @@
           <canvas id="stackCanvas" style="height:260px"></canvas>
           <div class="slider-row">
             <label style="min-width:140px; margin:0; font-size:12px;">Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label>
-            <input type="range" id="forceSlider" min="0" max="400" step="1" value="0" oninput="drawStackAtSlider()">
+            <input type="range" id="forceSlider" min="0" max="400" step="1" value="0">
           </div>
           <p class="diagram-cap">Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face stiffen the stack most, since fluid pressure loads the outer edge near the port.</p>
         </details>
 
         <div class="row2">
           <div class="field"><label>Shim ID, D.hole (hole for the shaft/post)</label>
-            <div class="unitpair"><input type="number" id="stackID" value="12" step="0.1"><select class="fieldUnit" data-for="stackID" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="stackID" value="12" step="0.1"><select class="fieldUnit" data-for="stackID" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
           <div class="field"><label>Clamp diameter, D.clamp (where it bends from)</label>
-            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm" onchange="onFieldUnitChange(this)"><option value="mm">mm</option><option value="in">in</option></select></div>
+            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
         </div>
         <p class="hint">The <b>shim ID</b> is just the center hole (must clear the shaft). The <b>clamp diameter</b> — the OD of the clamp washer / piston land that pins the stack — is what the shims actually bend off: only the material outside this diameter flexes, so it's the true inner boundary of the bending model. Make the clamp diameter larger to shorten the bending span (stiffer), smaller for a longer, softer span. It must be smaller than the largest shim OD and at least the shim ID.</p>
@@ -157,20 +157,20 @@
           </table>
         </div>
         <div class="btnrow">
-          <button class="small" onclick="addShimRow()">+ Add shim row</button>
-          <button class="small" onclick="loadExample()">Load metric example</button>
-          <button class="small" onclick="loadCrossoverExample()">Load crossover-shim example</button>
+          <button class="small" id="addShimRowBtn">+ Add shim row</button>
+          <button class="small" id="loadExampleBtn">Load metric example</button>
+          <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
         </div>
         <div class="btnrow" style="align-items:center; gap:6px;">
           <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Product</b></label>
-          <select id="prodSel" style="width:auto; min-width:210px;" onchange="onProductChange()"></select>
+          <select id="prodSel" style="width:auto; min-width:210px;"></select>
           <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Valve</b></label>
-          <select id="valveSel" style="width:auto;" onchange="onValveChange()"></select>
+          <select id="valveSel" style="width:auto;"></select>
           <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Stock tune</b></label>
-          <select id="tuneSel" style="width:auto;" onchange="onTuneChange()"></select>
+          <select id="tuneSel" style="width:auto;"></select>
         </div>
         <div class="btnrow" style="align-items:center; gap:6px; margin-top:6px;">
-          <button class="small" onclick="saveValveGeom()">Save this valve's geometry</button>
+          <button class="small" id="saveValveGeomBtn">Save this valve's geometry</button>
           <span class="hint" id="geomSaveHint" style="margin:0;"></span>
         </div>
         <p class="hint" id="presetNote"></p>
@@ -192,22 +192,22 @@
         <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Oil properties</h2>
         <div class="field">
           <label>Viscosity input mode</label>
-          <select id="viscMode" onchange="onViscModeChange()">
+          <select id="viscMode">
             <option value="direct">Direct — cSt @40°C / @100°C</option>
             <option value="iso">ISO VG grade</option>
             <option value="sae">SAE shock-oil weight (approx.)</option>
           </select>
         </div>
         <div class="row2" id="viscDirectFields">
-          <div class="field"><label>cSt @ 40°C</label><input type="number" id="cst40" value="30" step="0.1" oninput="onDirectCstChange()"></div>
-          <div class="field"><label>cSt @ 100°C</label><input type="number" id="cst100" value="6" step="0.1" oninput="onDirectCstChange()"></div>
+          <div class="field"><label>cSt @ 40°C</label><input type="number" id="cst40" value="30" step="0.1"></div>
+          <div class="field"><label>cSt @ 100°C</label><input type="number" id="cst100" value="6" step="0.1"></div>
         </div>
         <div class="row2" id="viscIsoFields" style="display:none">
-          <div class="field"><label>ISO VG grade</label><input type="number" id="isoVG" value="32" step="1" oninput="onViscModeChange()"></div>
+          <div class="field"><label>ISO VG grade</label><input type="number" id="isoVG" value="32" step="1"></div>
           <div class="field"><label>&nbsp;</label><span class="hint">cSt@40 = the VG number itself, by definition. cSt@100 is estimated for a typical VI≈100 mineral oil.</span></div>
         </div>
         <div class="row2" id="viscSaeFields" style="display:none">
-          <div class="field"><label>SAE shock-oil weight</label><input type="number" id="saeWt" value="5" step="0.5" oninput="onViscModeChange()"></div>
+          <div class="field"><label>SAE shock-oil weight</label><input type="number" id="saeWt" value="5" step="0.5"></div>
           <div class="field"><label>&nbsp;</label><span class="hint">Rough average fit — SAE shock-oil weight isn't a strict standard and varies a lot between brands (see About panel).</span></div>
         </div>
         <p class="hint" id="viscResultHint"></p>
@@ -224,13 +224,13 @@
         <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Shim material &amp; calculation range</h2>
         <div class="row2">
           <div class="field"><label>Shim modulus E</label>
-            <div class="unitpair"><input type="number" id="eMod" value="205000" step="1000"><select class="modUnit" data-for="eMod" data-unit="MPa" onchange="onModUnitChange(this)"><option value="MPa">MPa</option><option value="psi">psi</option></select></div>
+            <div class="unitpair"><input type="number" id="eMod" value="205000" step="1000"><select class="modUnit" data-for="eMod" data-unit="MPa"><option value="MPa">MPa</option><option value="psi">psi</option></select></div>
           </div>
           <div class="field"><label>Poisson ratio ν</label><input type="number" id="nu" value="0.3" step="0.01"></div>
         </div>
         <div class="field">
           <label>Results &amp; range units</label>
-          <select id="resultUnit" onchange="switchResultUnit(this.value)">
+          <select id="resultUnit">
             <option value="mm">Metric — N, mm/s</option>
             <option value="in">Imperial — lbf, in/s</option>
           </select>
@@ -241,14 +241,14 @@
           <div class="field"><label># velocity points</label><input type="number" id="nPts" value="26" step="1"></div>
         </div>
         <div class="btnrow">
-          <button class="primary" id="recalcBtn" style="display:none" onclick="runCalc()">▶ Recalculate</button>
-          <button onclick="saveConfig()">Save config…</button>
-          <button onclick="document.getElementById('loadFile').click()">Load config…</button>
-          <input type="file" id="loadFile" accept=".json" style="display:none" onchange="loadConfig(event)">
-          <button onclick="exportCSV()">Export CSV</button>
+          <button class="primary" id="recalcBtn" style="display:none">▶ Recalculate</button>
+          <button id="saveConfigBtn">Save config…</button>
+          <button id="loadConfigTriggerBtn">Load config…</button>
+          <input type="file" id="loadFile" accept=".json" style="display:none">
+          <button id="exportCSVBtn">Export CSV</button>
         </div>
         <div class="live-row">
-          <label class="live-toggle"><input type="checkbox" id="liveMode" checked onchange="onLiveModeChange()"> Live update — recalculate automatically as I type</label>
+          <label class="live-toggle"><input type="checkbox" id="liveMode" checked> Live update — recalculate automatically as I type</label>
           <span id="liveStatus" class="live-status"></span>
         </div>
         <p class="hint">Everything recalculates automatically as you edit. If you're working on a slow device or making many edits at once, untick Live update — a Recalculate button appears in its place.</p>
@@ -262,38 +262,38 @@
     <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Damping force curve</h2>
     <div class="btnrow" style="align-items:center; margin-top:0;">
       <label style="margin:0; font-size:12.5px;"><b>Force axis (Y)</b></label>
-      <select id="axisMode" style="width:auto;" onchange="onAxisSettingChange()">
+      <select id="axisMode" style="width:auto;">
         <option value="auto" selected>Auto-scale</option>
         <option value="fixed">Fixed max</option>
       </select>
       <span id="axisMaxWrap" style="display:none;">
-        min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0" oninput="onAxisSettingChange()">
-        max <input type="number" id="axisMaxF" style="width:90px;" step="50" oninput="onAxisSettingChange()"> <span class="uforce">N</span>
+        min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0">
+        max <input type="number" id="axisMaxF" style="width:90px;" step="50"> <span class="uforce">N</span>
       </span>
       <label style="margin:0 0 0 10px; font-size:12.5px;"><b>Speed axis (X)</b></label>
-      <select id="xAxisMode" style="width:auto;" onchange="onAxisSettingChange()">
+      <select id="xAxisMode" style="width:auto;">
         <option value="auto" selected>Auto-scale</option>
         <option value="fixed">Fixed max</option>
       </select>
       <span id="xAxisMaxWrap" style="display:none;">
-        max <input type="number" id="axisMaxU" style="width:90px;" step="100" oninput="onAxisSettingChange()"> <span class="uvel">mm/s</span>
+        max <input type="number" id="axisMaxU" style="width:90px;" step="100"> <span class="uvel">mm/s</span>
       </span>
       <span style="flex:1"></span>
       <input type="text" id="pinName" placeholder="curve label (optional)" style="width:150px;">
-      <button class="small" onclick="pinCurrentCurve()">📌 Pin curve</button>
-      <button class="small danger" onclick="clearPins()">Clear pinned</button>
+      <button class="small" id="pinCurveBtn">📌 Pin curve</button>
+      <button class="small danger" id="clearPinsBtn">Clear pinned</button>
     </div>
     <div id="pinList" style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;"></div>
     <div class="btnrow" style="align-items:center; margin-top:0;">
-      <label class="live-toggle"><input type="checkbox" id="targetOn" onchange="onTargetToggle()"> <b>Target curve</b> — drag the dots to shape what you want</label>
-      <button class="small" onclick="resetTargetToCurrent()">Reset to current</button>
-      <button class="small danger" onclick="clearTarget()">Clear target</button>
+      <label class="live-toggle"><input type="checkbox" id="targetOn"> <b>Target curve</b> — drag the dots to shape what you want</label>
+      <button class="small" id="resetTargetBtn">Reset to current</button>
+      <button class="small danger" id="clearTargetBtn">Clear target</button>
       <span style="flex:1"></span>
       <span id="targetReadout" class="hint" style="margin:0;"></span>
     </div>
     <div class="btnrow" style="align-items:center; margin-top:6px;">
-      <button class="small primary" id="optBtn" onclick="optimizeToTarget()">🔍 Optimize to target</button>
-      <button class="small danger" onclick="clearSuggestions()">Clear suggestions</button>
+      <button class="small primary" id="optBtn">🔍 Optimize to target</button>
+      <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
       <span id="optStatus" class="hint" style="margin:0;"></span>
     </div>
     <div id="optResults" style="margin:6px 0;"></div>
