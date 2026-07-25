@@ -12,7 +12,7 @@ Shim Stack Tuner is a standalone browser-based tool for exploring shim-stack sti
 Start a simple local server from the project folder and open the app in a browser:
 
 - Run: `npm start`
-- Open: http://127.0.0.1:8010/
+- Open: http://127.0.0.1:8000/
 
 The app now loads from [index.html](index.html), with styles in [styles.css](styles.css) and logic in [app.js](app.js).
 
