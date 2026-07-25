@@ -1,40 +1,8 @@
-
-/* =========================================================
-   UNITS — length fields are PER-FIELD; force/velocity/modulus use one "result unit"
-   ========================================================= */
-const FACT_LEN = { mm: 1, in: 25.4 };
-const FACT_FORCE = { mm: 1, in: 4.4482216153 }; // result-unit key 'mm' means metric(N), 'in' means imperial(lbf)
-const FACT_VEL = { mm: 1, in: 25.4 };
-const FACT_MOD = { MPa: 1, psi: 0.00689476 };
-const DEC_LEN = { mm: 3, in: 4 };
-const DEC_FORCE = { mm: 1, in: 2 };
-const DEC_VEL = { mm: 1, in: 3 };
-
-function convLen(v, fromU, toU) {
-  if (isNaN(v) || fromU === toU) return v;
-  return (v * FACT_LEN[fromU]) / FACT_LEN[toU];
-}
-function convForce(v, fromU, toU) {
-  if (isNaN(v) || fromU === toU) return v;
-  return (v * FACT_FORCE[fromU]) / FACT_FORCE[toU];
-}
-function convVel(v, fromU, toU) {
-  if (isNaN(v) || fromU === toU) return v;
-  return (v * FACT_VEL[fromU]) / FACT_VEL[toU];
-}
-function convMod(v, fromU, toU) {
-  if (isNaN(v) || fromU === toU) return v;
-  return (v * FACT_MOD[fromU]) / FACT_MOD[toU];
-}
-function fmtLen(v, u) {
-  return v.toFixed(DEC_LEN[u]);
-}
-function fmtForce(v, u) {
-  return v.toFixed(DEC_FORCE[u]);
-}
-function fmtVel(v, u) {
-  return v.toFixed(DEC_VEL[u]);
-}
+import { convLen, convForce, convVel, convMod, fmtLen, fmtForce, fmtVel } from './js/units.js';
+import { interpArr, stackGapAt, stackSupportedAt, buildStack, solveForceAtVelocity } from './js/physics.js';
+import { lsGet, lsSet } from './js/storage.js';
+import { IN, canonThk, PRODUCTS, usableShims } from './js/catalog-data.js';
+import { setupCanvas, drawAxes } from './js/canvas-utils.js';
 
 let resultUnit = 'mm'; // display unit for force/velocity/outputs
 
@@ -199,261 +167,6 @@ function onViscModeChange() {
 }
 function onDirectCstChange() {
   document.getElementById('viscResultHint').textContent = '';
-}
-
-function waltherViscosityAt(cSt40, cSt100, tempC) {
-  cSt40 = Math.max(cSt40, 1.01);
-  cSt100 = Math.max(cSt100, 1.01);
-  const T1 = 313.15,
-    T2 = 373.15,
-    Tq = tempC + 273.15;
-  const y1 = Math.log10(Math.log10(cSt40 + 0.7)),
-    y2 = Math.log10(Math.log10(cSt100 + 0.7));
-  const x1 = Math.log10(T1),
-    x2 = Math.log10(T2);
-  const B = (y1 - y2) / (x2 - x1);
-  const A = y1 + B * x1;
-  const yq = A - B * Math.log10(Tq);
-  return Math.max(0.5, Math.pow(10, Math.pow(10, yq)) - 0.7);
-}
-
-/* =========================================================
-   PHYSICS ENGINE (always works in base mm / N / MPa / mm-s)
-   ========================================================= */
-function interpArr(xs, ys, x) {
-  if (x <= xs[0]) return ys[0];
-  if (x >= xs[xs.length - 1]) return ys[ys.length - 1];
-  for (let i = 0; i < xs.length - 1; i++) {
-    if (x >= xs[i] && x <= xs[i + 1]) {
-      const f = (x - xs[i]) / (xs[i + 1] - xs[i]);
-      return ys[i] + f * (ys[i + 1] - ys[i]);
-    }
-  }
-  return ys[ys.length - 1];
-}
-
-// Gap beneath row i at radius r, in table-stacking order: the row's own explicit Float,
-// plus the thickness of every row BELOW it that doesn't physically reach out to radius r
-// (a narrower shim below leaves an air cavity of its own thickness under this row's
-// overhang — the "structural crossover" a wide clamp plate over a small pivot shim makes).
-function stackGapAt(rows, i, r) {
-  let g = rows[i].float > 0 ? rows[i].float : 0;
-  for (let j = 0; j < i; j++) {
-    if (rows[j].diam / 2 < r - 1e-9) g += rows[j].count * rows[j].thickness;
-  }
-  return g;
-}
-// Is there anything below row i present at radius r to push on it? Row 0 sits on the
-// valve face itself and is loaded directly by fluid pressure, so it always counts.
-function stackSupportedAt(rows, i, r) {
-  if (i === 0) return true;
-  for (let j = 0; j < i; j++) {
-    if (rows[j].diam / 2 >= r - 1e-9) return true;
-  }
-  return false;
-}
-
-// Incremental (tangent-stiffness) nonlinear stack solver.
-// Each step: compute the UNIT-load deflection shape for the CURRENT engagement state,
-// scale by dF and ADD to the running accumulated deflection (never recomputed from scratch),
-// then check whether any not-yet-engaged row has closed the gap beneath it and lock it in.
-// A row starts disengaged if there is ANY radius within its own reach where a positive
-// gap (explicit Float and/or structural cavity from a narrower shim below) separates it
-// from the supported stack — so crossover clamps are detected automatically, without the
-// user having to enter a Float.
-function buildStack(rows, geom, mech, opts) {
-  const nSeg = (opts && opts.nSeg) || 350;
-  const nSteps = (opts && opts.nSteps) || 150;
-  const Fmax = (opts && opts.Fmax) || 400;
-
-  // The stack bends off the CLAMP diameter (the clamp washer / piston land that pins it
-  // rigid), NOT the shim's center hole. Only material outside the clamp radius flexes.
-  const a = (geom.clampDia && geom.clampDia > 0 ? geom.clampDia : geom.stackID) / 2;
-  const bMax = Math.max(...rows.map((r) => r.diam / 2));
-  const rLoad = Math.min(geom.rPort + geom.dPort, bMax);
-  const rMax = Math.max(bMax, rLoad);
-  const dr = (rMax - a) / nSeg;
-  if (dr <= 0) throw new Error('Clamp diameter must be smaller than the largest shim OD.');
-  const Eprime = mech.E / (1 - mech.nu * mech.nu);
-
-  // Shims in a real stack are NOT bonded to each other — they slide freely, so each shim
-  // bends about its own neutral axis and the stack's bending stiffness at a radius is the
-  // SUM OF CUBES of the individual engaged thicknesses, Σ(count·t³) — not the cube of the
-  // summed thickness (Σt)³ a welded laminate would give. The difference is huge (factor
-  // N² for N identical shims) and it's what makes a few thick shims stiffer than many
-  // thin ones of equal total height — e.g. FOX's Rebound MED+ (6× .0045in) is correctly
-  // firmer than Rebound LIGHT (9× .0032in), which a bonded model gets backwards.
-  // Inter-shim friction would add some stiffness on top of this free-sliding lower bound.
-  function cubeSumAt(r, engagedState) {
-    let s = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.diam / 2 >= r - 1e-9 && engagedState[i]) s += row.count * Math.pow(row.thickness, 3);
-    }
-    return s;
-  }
-  function unitProfile(engagedState) {
-    const rs = [],
-      cUnit = [];
-    let theta = 0,
-      y = 0;
-    for (let i = 0; i <= nSeg; i++) {
-      const r = a + i * dr;
-      rs.push(r);
-      cUnit.push(y);
-      const t3 = cubeSumAt(r, engagedState);
-      if (t3 <= 0)
-        throw new Error(
-          `No always-engaged shim spans radius ${r.toFixed(2)} mm. The widest shim must be a normal bonded one (no Float, and not sitting above narrower shims that make it a floating crossover) so material bridges from the clamp out to the load. If you added a wide shim at the clamp end of the list, move it up toward the valve face (↑) or reduce its OD.`,
-        );
-      const I = (2 * Math.PI * r * t3) / 12;
-      const M = r <= rLoad ? rLoad - r : 0;
-      const kappa = M / (Eprime * I);
-      theta += kappa * dr;
-      y += theta * dr;
-    }
-    return { rs, cUnit };
-  }
-
-  // radial grid (independent of engagement state)
-  const rsRef = [];
-  for (let i = 0; i <= nSeg; i++) rsRef.push(a + i * dr);
-
-  // per-row gap/support tables on the grid, and initial engagement
-  const gapGrid = rows.map((row, i) => rsRef.map((r) => stackGapAt(rows, i, r)));
-  const suppGrid = rows.map((row, i) => rsRef.map((r) => stackSupportedAt(rows, i, r)));
-  const hasGap = rows.map((row, i) => {
-    const reachI = row.diam / 2;
-    return rsRef.some((r, k) => r <= reachI + 1e-9 && suppGrid[i][k] && gapGrid[i][k] > 0);
-  });
-  let engagedState = rows.map((row, i) => !hasGap[i]);
-
-  const dF = Fmax / nSteps;
-  let yAccum = rsRef.map(() => 0);
-  const Ftab = [0],
-    YtabAtLoad = [0];
-  const engageLog = [];
-  const snapshots = [{ F: 0, y: yAccum.slice() }];
-
-  for (let s = 1; s <= nSteps; s++) {
-    const { cUnit } = unitProfile(engagedState);
-    for (let i = 0; i < yAccum.length; i++) yAccum[i] += cUnit[i] * dF;
-    const F = s * dF;
-    for (let i = 0; i < rows.length; i++) {
-      if (engagedState[i]) continue;
-      const reachI = rows[i].diam / 2;
-      for (let k = 0; k < rsRef.length; k++) {
-        if (rsRef[k] > reachI + 1e-9) break;
-        if (suppGrid[i][k] && gapGrid[i][k] > 0 && yAccum[k] >= gapGrid[i][k]) {
-          engagedState[i] = true;
-          engageLog.push({ rowIndex: i, F });
-          break;
-        }
-      }
-    }
-    Ftab.push(F);
-    YtabAtLoad.push(interpArr(rsRef, yAccum, rLoad));
-    snapshots.push({ F, y: yAccum.slice() });
-  }
-
-  function yAtLoad(F) {
-    if (F <= 0) return 0;
-    const Fend = Ftab[Ftab.length - 1];
-    if (F <= Fend) return interpArr(Ftab, YtabAtLoad, F);
-    // Beyond the built range: extrapolate with the tangent stiffness at the end of the
-    // table (all engagements that will happen within the modeled range have already
-    // happened) rather than clamping flat — keeps the force solver's bisection well-behaved
-    // if a high shaft velocity needs more force than the "Max stack force" setting.
-    const n = Ftab.length;
-    const F1 = Ftab[n - 2],
-      F2 = Ftab[n - 1],
-      Y1 = YtabAtLoad[n - 2],
-      Y2 = YtabAtLoad[n - 1];
-    const slope = (Y2 - Y1) / (F2 - F1 || 1);
-    return Y2 + slope * (F - F2);
-  }
-  function profileAt(F) {
-    F = Math.max(0, Math.min(F, Ftab[Ftab.length - 1]));
-    let lo = 0;
-    for (let i = 0; i < snapshots.length; i++) {
-      if (snapshots[i].F <= F) lo = i;
-      else break;
-    }
-    const hi = Math.min(lo + 1, snapshots.length - 1);
-    if (hi === lo) return { rs: rsRef, ys: snapshots[lo].y };
-    const f = (F - snapshots[lo].F) / (snapshots[hi].F - snapshots[lo].F || 1);
-    const y = snapshots[lo].y.map((v, i) => v + f * (snapshots[hi].y[i] - v));
-    return { rs: rsRef, ys: y };
-  }
-
-  const engageF = rows.map((r, i) => (hasGap[i] ? Infinity : -Infinity));
-  engageLog.forEach((e) => (engageF[e.rowIndex] = e.F));
-
-  return { a, bMax, rLoad, rMax, rs: rsRef, Ftab, YtabAtLoad, yAtLoad, profileAt, engageLog, engageF };
-}
-
-function flowArea(yLift, geom) {
-  let A = geom.nPort * (geom.wPort + geom.dPort) * Math.max(yLift, 0);
-  if (geom.dThrt > 0 && geom.nThrt > 0) {
-    const Athrt = ((geom.nThrt * Math.PI) / 4) * geom.dThrt * geom.dThrt;
-    A = Math.min(A, Athrt);
-  }
-  return A;
-}
-function valveArea(geom, valveType) {
-  const Ar = (Math.PI / 4) * geom.dRod * geom.dRod;
-  const Av = (Math.PI / 4) * geom.dValve * geom.dValve;
-  if (valveType === 'base') return Ar;
-  if (valveType === 'mainRebound') return Av - Ar;
-  return Av;
-}
-function pressurizedArea(geom) {
-  return geom.nPort * geom.wPort * geom.dPort;
-}
-
-function solveForceAtVelocity(u, stack, geom, fluid, valveType, Fmax) {
-  if (u <= 0) return { F: 0, Re: 0 };
-  const Avalve = valveArea(geom, valveType);
-  const Apress = pressurizedArea(geom);
-  const Q = u * 1e-3 * (Avalve * 1e-6);
-  const cStAtTemp = waltherViscosityAt(fluid.cSt40, fluid.cSt100, fluid.tempC);
-  const mu = cStAtTemp * 1e-6 * fluid.rho; // Pa*s
-
-  let lastRe = 0;
-  function Fcomputed(F) {
-    const y = stack.yAtLoad(F);
-    const Aflow = flowArea(y, geom);
-    if (Aflow <= 1e-9) return 1e12;
-    const Aflow_m2 = Aflow * 1e-6;
-    const vGuess = Q / (fluid.Cd * Aflow_m2);
-    const Dh = 2 * (y * 1e-3);
-    const Re = Dh > 1e-9 ? (fluid.rho * Math.abs(vGuess) * Dh) / mu : 0;
-    const CdUse = Math.max((fluid.Cd * Re) / (Re + fluid.Re0), 0.05 * fluid.Cd);
-    lastRe = Re;
-    const vActual = Q / (CdUse * Aflow_m2);
-    const dP_Pa = 0.5 * fluid.rho * vActual * vActual;
-    return (dP_Pa / 1e6) * Apress;
-  }
-  let lo = 0,
-    hi = Fmax,
-    guard = 0;
-  while (Fcomputed(hi) > hi && guard < 40) {
-    hi *= 1.5;
-    guard++;
-  }
-  for (let i = 0; i < 80; i++) {
-    const mid = 0.5 * (lo + hi);
-    const resid = Fcomputed(mid) - mid;
-    if (Math.abs(resid) < 1e-6 * Math.max(1, mid)) {
-      lo = hi = mid;
-      break;
-    }
-    if (resid > 0) lo = mid;
-    else hi = mid;
-  }
-  const F = 0.5 * (lo + hi);
-  Fcomputed(F);
-  return { F, Re: lastRe };
 }
 
 /* =========================================================
@@ -718,235 +431,6 @@ function loadExample() {
   scheduleLiveCalc();
 }
 
-/* =========================================================
-   FOX 2025 GRIP X2 PRESET STACK LIBRARY
-   Extracted from FOX Factory valve-stack assembly drawings. All shims 0.252in ID.
-   rows are [count, OD_in, thickness_in], listed from the valve face (pressure side)
-   outward toward the clamp, matching each drawing's assembly order. Every kit's shim
-   count was cross-checked against the drawing's "VALVE STACK HEIGHT" dimension.
-   ========================================================= */
-/* =========================================================
-   PRODUCT PROFILE LIBRARY  (Phase 1)
-   A product = a shock/fork. Each valve inside it carries a fixed shim ID, OD bounds,
-   a soft stack-height tolerance, editable+saved port geometry, and named stock tunes.
-   Tune rows are [count, OD_in, thickness_in], valve-face first. FOX's 0.0031/0.0032
-   rounding is collapsed to a single canonical 0.0031 part everywhere.
-   ========================================================= */
-const IN = 25.4;
-const CANON_THK = [0.0031, 0.0045, 0.006, 0.01]; // real FOX catalog thicknesses (in)
-function canonThk(t) {
-  let best = t,
-    bd = 1e9;
-  for (const c of CANON_THK) {
-    const d = Math.abs(c - t);
-    if (d < bd) {
-      bd = d;
-      best = c;
-    }
-  }
-  return bd <= 0.0006 ? best : t; // snap only near-duplicates (merges .0031/.0032)
-}
-
-const PRODUCTS = {
-  fox38x2: {
-    label: '2025 FOX 38 Factory — Grip X2',
-    valves: {
-      rebound: {
-        label: 'Rebound',
-        valveType: 'mainRebound',
-        shimID: 0.252,
-        odMin: 0.35,
-        odMax: 0.65,
-        faceOD: 0.65,
-        heightTolIn: 0.05 / IN,
-        geom: {
-          stackID_in: 0.252,
-          clampDia_in: 0.252,
-          dRod: 8,
-          dValve: 18,
-          rPort: 4,
-          dPort: 3,
-          wPort: 3.5,
-          nPort: 4,
-          dThrt: 0,
-          nThrt: 0,
-        },
-        tunes: {
-          xlight: {
-            kit: '820-03-766-KIT',
-            label: 'X-Light',
-            heightIn: 0.023,
-            rows: [
-              [2, 0.65, 0.0031],
-              [2, 0.55, 0.0031],
-              [2, 0.4, 0.0031],
-              [1, 0.35, 0.0045],
-            ],
-          },
-          light: {
-            kit: '820-03-743-KIT',
-            label: 'Light',
-            heightIn: 0.029,
-            rows: [
-              [3, 0.65, 0.0032],
-              [3, 0.55, 0.0032],
-              [2, 0.45, 0.0032],
-              [1, 0.35, 0.0045],
-            ],
-          },
-          medplus: {
-            kit: '820-03-778-KIT',
-            label: 'Medium+',
-            heightIn: 0.027,
-            rows: [
-              [2, 0.65, 0.0045],
-              [2, 0.55, 0.0045],
-              [1, 0.5, 0.0045],
-              [1, 0.45, 0.0045],
-            ],
-          },
-          firm: {
-            kit: '820-03-779-KIT',
-            label: 'Firm',
-            heightIn: 0.036,
-            rows: [
-              [2, 0.65, 0.0045],
-              [2, 0.55, 0.0045],
-              [1, 0.5, 0.0045],
-              [3, 0.45, 0.0045],
-            ],
-          },
-        },
-      },
-      mid: {
-        label: 'Mid valve (compression)',
-        valveType: 'mainComp',
-        shimID: 0.252,
-        odMin: 0.325,
-        odMax: 0.65,
-        faceOD: 0.65,
-        heightTolIn: 0.05 / IN,
-        geom: {
-          stackID_in: 0.252,
-          clampDia_in: 0.252,
-          dRod: 8,
-          dValve: 18,
-          rPort: 4,
-          dPort: 3,
-          wPort: 3.5,
-          nPort: 4,
-          dThrt: 0,
-          nThrt: 0,
-        },
-        tunes: {
-          light: {
-            kit: '820-03-765-KIT',
-            label: 'Light (CL)',
-            floatIn: '.006–.010',
-            rows: [
-              [1, 0.65, 0.0031],
-              [1, 0.4, 0.0031],
-              [1, 0.35, 0.0031],
-              [1, 0.55, 0.0031],
-              [2, 0.45, 0.0031],
-            ],
-          },
-          medium: {
-            kit: '820-03-702-KIT',
-            label: 'Medium (CM)',
-            floatIn: '.006–.010',
-            rows: [
-              [1, 0.65, 0.0031],
-              [1, 0.4, 0.0031],
-              [1, 0.55, 0.0031],
-              [2, 0.45, 0.0031],
-              [1, 0.4, 0.0031],
-            ],
-          },
-        },
-      },
-      base: {
-        label: 'Base valve (compression)',
-        valveType: 'base',
-        shimID: 0.252,
-        odMin: 0.4,
-        odMax: 0.8,
-        faceOD: 0.8,
-        heightTolIn: 0.05 / IN,
-        geom: {
-          stackID_in: 0.252,
-          clampDia_in: 0.252,
-          dRod: 8,
-          dValve: 22,
-          rPort: 5,
-          dPort: 4,
-          wPort: 5,
-          nPort: 6,
-          dThrt: 0,
-          nThrt: 0,
-        },
-        tunes: {
-          light: {
-            kit: '820-03-764-KIT',
-            label: 'Light (CL)',
-            heightIn: 0.14,
-            rows: [
-              [5, 0.8, 0.0031],
-              [1, 0.4, 0.0031],
-              [6, 0.8, 0.0045],
-              [3, 0.7, 0.006],
-              [3, 0.6, 0.006],
-              [3, 0.5, 0.006],
-              [1, 0.45, 0.01],
-              [3, 0.4, 0.01],
-            ],
-          },
-          firm: {
-            kit: '820-03-703-KIT',
-            label: 'Firm (CF)',
-            heightIn: 0.137,
-            rows: [
-              [5, 0.8, 0.0031],
-              [1, 0.5, 0.0031],
-              [3, 0.8, 0.006],
-              [3, 0.7, 0.006],
-              [3, 0.6, 0.006],
-              [4, 0.5, 0.006],
-              [1, 0.45, 0.01],
-              [3, 0.4, 0.01],
-            ],
-          },
-        },
-      },
-    },
-  },
-};
-
-/* ---- global parts bin: every real (ID,OD,thickness) shim across all products ---- */
-function buildPartsBin() {
-  const seen = new Map();
-  for (const pk in PRODUCTS) {
-    const prod = PRODUCTS[pk];
-    for (const vk in prod.valves) {
-      const v = prod.valves[vk];
-      for (const tk in v.tunes) {
-        for (const r of v.tunes[tk].rows) {
-          const od = r[1],
-            thk = canonThk(r[2]);
-          const key = v.shimID + '|' + od + '|' + thk;
-          if (!seen.has(key)) seen.set(key, { id: v.shimID, od, thk });
-        }
-      }
-    }
-  }
-  return [...seen.values()];
-}
-let PARTS_BIN = buildPartsBin();
-function usableShims(v) {
-  return PARTS_BIN.filter(
-    (s) => Math.abs(s.id - v.shimID) < 1e-6 && s.od >= v.odMin - 1e-9 && s.od <= v.odMax + 1e-9,
-  ).sort((a, b) => a.od - b.od || a.thk - b.thk);
-}
 /* ---- product/valve/tune selection ---- */
 let curProduct = 'fox38x2',
   curValveKey = 'rebound';
@@ -1484,63 +968,6 @@ function drawStackAtSlider() {
 
   const rLoadDisp = convLen(currentStack.rLoad, 'mm', resultUnit);
   drawStackCanvas(bands, rLoadDisp);
-}
-
-/* =========================================================
-   CANVAS DRAWING (no external libraries)
-   ========================================================= */
-function setupCanvas(cv) {
-  const ratio = window.devicePixelRatio || 1;
-  const rect = cv.getBoundingClientRect();
-  cv.width = rect.width * ratio;
-  cv.height = rect.height * ratio;
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  return { ctx, w: rect.width, h: rect.height };
-}
-
-function drawAxes(ctx, w, h, pad, xMax, yMax, xLabel, yLabel, yMin) {
-  yMin = yMin || 0;
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = '#dde1e6';
-  ctx.fillStyle = '#5b6472';
-  ctx.font = '11px sans-serif';
-  ctx.beginPath();
-  ctx.moveTo(pad.l, pad.t);
-  ctx.lineTo(pad.l, h - pad.b);
-  ctx.lineTo(w - pad.r, h - pad.b);
-  ctx.stroke();
-  const nx = 5,
-    ny = 5;
-  for (let i = 0; i <= nx; i++) {
-    const x = pad.l + ((w - pad.l - pad.r) * i) / nx;
-    const val = (xMax * i) / nx;
-    ctx.strokeStyle = '#eef0f3';
-    ctx.beginPath();
-    ctx.moveTo(x, pad.t);
-    ctx.lineTo(x, h - pad.b);
-    ctx.stroke();
-    ctx.fillStyle = '#5b6472';
-    ctx.fillText(val < 1 ? val.toFixed(4) : val.toFixed(val < 10 ? 2 : 0), x - 8, h - pad.b + 14);
-  }
-  for (let i = 0; i <= ny; i++) {
-    const y = h - pad.b - ((h - pad.t - pad.b) * i) / ny;
-    const val = yMin + ((yMax - yMin) * i) / ny;
-    ctx.strokeStyle = '#eef0f3';
-    ctx.beginPath();
-    ctx.moveTo(pad.l, y);
-    ctx.lineTo(w - pad.r, y);
-    ctx.stroke();
-    ctx.fillStyle = '#5b6472';
-    ctx.fillText(val < 1 ? val.toFixed(4) : val.toFixed(val < 10 ? 2 : 0), 4, y + 3);
-  }
-  ctx.fillStyle = '#1c2430';
-  ctx.fillText(xLabel, w / 2 - 20, h - 4);
-  ctx.save();
-  ctx.translate(10, h / 2 + 20);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText(yLabel, 0, 0);
-  ctx.restore();
 }
 
 function drawStackCanvas(bands, rLoad) {
@@ -2584,28 +2011,6 @@ function exportCSV() {
   a.click();
 }
 
-/* =========================================================
-   PERSISTENCE (browser localStorage) — valve setups, panel collapse, tile layout.
-   All guarded: if storage is unavailable (some browsers restrict it for file:// pages),
-   every feature degrades gracefully to "works for this session only".
-   ========================================================= */
-function lsGet(key) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? null : JSON.parse(v);
-  } catch (e) {
-    return null;
-  }
-}
-function lsSet(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 /* ---- named valve-dimension setups ---- */
 const VS_KEY = 'sst_valveSetups_v1';
 function refreshValveSetupList(selectName) {
@@ -2837,110 +2242,112 @@ function wireStaticControls() {
   bindings.forEach(([id, evt, fn]) => document.getElementById(id).addEventListener(evt, fn));
 }
 
-// init
-wireStaticControls();
-const shimBody = document.getElementById('shimBody');
-shimBody.addEventListener('input', () => {
-  drawShimRefDiagram();
-  refreshCustomState();
-});
-shimBody.addEventListener('change', (e) => {
-  if (e.target.matches('.rowUnit')) onRowUnitChange(e.target);
-  drawShimRefDiagram();
-  refreshCustomState();
-});
-shimBody.addEventListener('click', (e) => {
-  const btn = e.target.closest('.rowbtn');
-  if (!btn) return;
-  const action = btn.dataset.action;
-  if (action === 'up') moveShimRow(btn, -1);
-  else if (action === 'down') moveShimRow(btn, 1);
-  else if (action === 'dup') duplicateShimRow(btn);
-  else if (action === 'remove') removeShimRow(btn);
-});
-document.getElementById('catalogChips').addEventListener('click', (e) => {
-  const btn = e.target.closest('.catchip');
-  if (!btn) return;
-  addCatalogShim(parseFloat(btn.dataset.od), parseFloat(btn.dataset.thk));
-});
-document.getElementById('optResults').addEventListener('click', (e) => {
-  const btn = e.target.closest('.applyCandidateBtn');
-  if (!btn) return;
-  applyCandidate(parseInt(btn.dataset.idx, 10));
-});
-document.getElementById('stackID').addEventListener('input', drawShimRefDiagram);
-document.getElementById('clampDia').addEventListener('input', drawShimRefDiagram);
-['rPort', 'dPort', 'wPort', 'nPort', 'dValve', 'dRod'].forEach((id) => {
-  document.getElementById(id).addEventListener('input', drawPortFaceDiagram);
-});
+function init() {
+  wireStaticControls();
+  const shimBody = document.getElementById('shimBody');
+  shimBody.addEventListener('input', () => {
+    drawShimRefDiagram();
+    refreshCustomState();
+  });
+  shimBody.addEventListener('change', (e) => {
+    if (e.target.matches('.rowUnit')) onRowUnitChange(e.target);
+    drawShimRefDiagram();
+    refreshCustomState();
+  });
+  shimBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.rowbtn');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'up') moveShimRow(btn, -1);
+    else if (action === 'down') moveShimRow(btn, 1);
+    else if (action === 'dup') duplicateShimRow(btn);
+    else if (action === 'remove') removeShimRow(btn);
+  });
+  document.getElementById('catalogChips').addEventListener('click', (e) => {
+    const btn = e.target.closest('.catchip');
+    if (!btn) return;
+    addCatalogShim(parseFloat(btn.dataset.od), parseFloat(btn.dataset.thk));
+  });
+  document.getElementById('optResults').addEventListener('click', (e) => {
+    const btn = e.target.closest('.applyCandidateBtn');
+    if (!btn) return;
+    applyCandidate(parseInt(btn.dataset.idx, 10));
+  });
+  document.getElementById('stackID').addEventListener('input', drawShimRefDiagram);
+  document.getElementById('clampDia').addEventListener('input', drawShimRefDiagram);
+  ['rPort', 'dPort', 'wPort', 'nPort', 'dValve', 'dRod'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', drawPortFaceDiagram);
+  });
 
-// Live recalculation: any edit to an input/select schedules a debounced solve.
-// Listens on document.body — NOT a specific container — so edits keep triggering
-// recalcs no matter which column/area a tile has been dragged into. Controls with
-// their own handlers (unit switchers, presets, axis, pins, live toggle, slider)
-// are excluded so they don't double-fire or recalc needlessly.
-(function wireLiveInputs() {
-  const SKIP_IDS = [
-    'liveMode',
-    'loadFile',
-    'forceSlider',
-    'bulkUnit',
-    'resultUnit',
-    'prodSel',
-    'valveSel',
-    'tuneSel',
-    'valveSetups',
-    'valveSetupName',
-    'pinName',
-    'axisMode',
-    'axisMaxF',
-    'axisMinF',
-    'xAxisMode',
-    'axisMaxU',
-  ];
-  const isLiveTrigger = (t) => {
-    if (!t || (t.tagName !== 'INPUT' && t.tagName !== 'SELECT')) return false;
-    if (SKIP_IDS.includes(t.id)) return false;
-    return true;
-  };
-  ['input', 'change'].forEach((evt) => {
-    document.body.addEventListener(evt, (e) => {
-      if (isLiveTrigger(e.target)) scheduleLiveCalc();
+  // Live recalculation: any edit to an input/select schedules a debounced solve.
+  // Listens on document.body — NOT a specific container — so edits keep triggering
+  // recalcs no matter which column/area a tile has been dragged into. Controls with
+  // their own handlers (unit switchers, presets, axis, pins, live toggle, slider)
+  // are excluded so they don't double-fire or recalc needlessly.
+  (function wireLiveInputs() {
+    const SKIP_IDS = [
+      'liveMode',
+      'loadFile',
+      'forceSlider',
+      'bulkUnit',
+      'resultUnit',
+      'prodSel',
+      'valveSel',
+      'tuneSel',
+      'valveSetups',
+      'valveSetupName',
+      'pinName',
+      'axisMode',
+      'axisMaxF',
+      'axisMinF',
+      'xAxisMode',
+      'axisMaxU',
+    ];
+    const isLiveTrigger = (t) => {
+      if (!t || (t.tagName !== 'INPUT' && t.tagName !== 'SELECT')) return false;
+      if (SKIP_IDS.includes(t.id)) return false;
+      return true;
+    };
+    ['input', 'change'].forEach((evt) => {
+      document.body.addEventListener(evt, (e) => {
+        if (isLiveTrigger(e.target)) scheduleLiveCalc();
+      });
+    });
+  })();
+
+  initPanelUX();
+  document.querySelectorAll('details.diagram-box').forEach((det) => {
+    det.addEventListener('toggle', () => {
+      if (det.open) redrawAllVisuals();
     });
   });
-})();
-
-initPanelUX();
-document.querySelectorAll('details.diagram-box').forEach((det) => {
-  det.addEventListener('toggle', () => {
-    if (det.open) redrawAllVisuals();
-  });
-});
-applyLayout(lsGet(LAYOUT_KEY));
-applyCollapsed();
-refreshValveSetupList();
-initProductUX();
-pinnedCurves = lsGet(PINS_KEY) || [];
-renderPinList();
-restoreAxisPrefs();
-restoreTarget();
-(function wireTargetDrag() {
-  const cv = document.getElementById('forceCanvas');
-  if (!cv) return;
-  cv.addEventListener('pointerdown', (e) => forceCanvasPointer(e, 'down'));
-  cv.addEventListener('pointermove', (e) => forceCanvasPointer(e, 'move'));
-  window.addEventListener('pointerup', (e) => forceCanvasPointer(e, 'up'));
-  if (targetOn) cv.style.touchAction = 'none';
-})();
-loadExample();
-onViscModeChange();
-drawPortFaceDiagram();
-runCalc({ live: true }); // populate outputs immediately on load
-window.addEventListener('resize', () => {
-  if (currentStack) {
-    drawStackAtSlider();
-    drawForceCurve();
-  }
-  drawShimRefDiagram();
+  applyLayout(lsGet(LAYOUT_KEY));
+  applyCollapsed();
+  refreshValveSetupList();
+  initProductUX();
+  pinnedCurves = lsGet(PINS_KEY) || [];
+  renderPinList();
+  restoreAxisPrefs();
+  restoreTarget();
+  (function wireTargetDrag() {
+    const cv = document.getElementById('forceCanvas');
+    if (!cv) return;
+    cv.addEventListener('pointerdown', (e) => forceCanvasPointer(e, 'down'));
+    cv.addEventListener('pointermove', (e) => forceCanvasPointer(e, 'move'));
+    window.addEventListener('pointerup', (e) => forceCanvasPointer(e, 'up'));
+    if (targetOn) cv.style.touchAction = 'none';
+  })();
+  loadExample();
+  onViscModeChange();
   drawPortFaceDiagram();
-});
+  runCalc({ live: true }); // populate outputs immediately on load
+  window.addEventListener('resize', () => {
+    if (currentStack) {
+      drawStackAtSlider();
+      drawForceCurve();
+    }
+    drawShimRefDiagram();
+    drawPortFaceDiagram();
+  });
+}
+init();
