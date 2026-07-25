@@ -57,6 +57,23 @@ async function run() {
       throw new Error(`Expected #bulkUnit to be "in" after selecting it, got: "${selected}"`);
     }
 
+    // The initial load already ran runCalc({live:true}) synchronously - confirm the
+    // results table actually got populated (proves physics engine + rendering pipeline
+    // are wired correctly end-to-end, not just "no console errors").
+    const rowCountAfterLoad = await page.$$eval('#resultsTable tbody tr', (rows) => rows.length);
+    if (rowCountAfterLoad < 2) {
+      throw new Error(`Expected results table to have rows after initial load, got ${rowCountAfterLoad}`);
+    }
+
+    // Click "+ Add shim row" (exercises the delegated event wiring for that control)
+    // and confirm the shim table actually grew by one row.
+    const shimRowsBefore = await page.$$eval('#shimBody tr', (rows) => rows.length);
+    await page.click('#addShimRowBtn');
+    const shimRowsAfter = await page.$$eval('#shimBody tr', (rows) => rows.length);
+    if (shimRowsAfter !== shimRowsBefore + 1) {
+      throw new Error(`Expected #shimBody to grow by 1 row, went from ${shimRowsBefore} to ${shimRowsAfter}`);
+    }
+
     if (errors.length > 0) {
       throw new Error('Console/page errors detected:\n' + errors.join('\n'));
     }
