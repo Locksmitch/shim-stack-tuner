@@ -26,5 +26,15 @@ module.exports = [
       },
     },
   },
+  {
+    files: ['test/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2021,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   prettierConfig,
 ];

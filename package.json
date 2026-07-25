@@ -5,7 +5,9 @@
   "description": "Standalone browser-based shim stack tuning calculator",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/smoke.js",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test test/*.test.mjs",
+    "test:e2e": "node test/smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

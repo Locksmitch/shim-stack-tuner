@@ -20,10 +20,10 @@ The app loads from [index.html](index.html), with styles in [styles.css](styles.
 
 ## Testing
 
-A smoke test loads the app in a headless browser and checks that it starts up without JS errors:
+`npm test` runs two suites:
 
-- One-time setup: `npm install` then `npx playwright install chromium`
-- Run: `npm test`
+- **Unit tests** ([test/physics.test.mjs](test/physics.test.mjs)) — exercise `js/physics.js` (the calculation engine) directly with Node's built-in test runner, no browser needed. Run alone: `npm run test:unit`.
+- **Smoke test** ([test/smoke.js](test/smoke.js)) — loads the app in a headless browser and checks it starts up without JS errors. Run alone: `npm run test:e2e`. One-time setup: `npm install` then `npx playwright install chromium`.
 
 ## Notes
 
