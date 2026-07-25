@@ -1,0 +1,9 @@
+{
+  "name": "shim-stack-tuner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone browser-based shim stack tuning calculator",
+  "scripts": {
+    "start": "npx http-server -p 8000"
+  }
+}
