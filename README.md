@@ -16,7 +16,7 @@ Start a simple local server from the project folder and open the app in a browse
 - Run: `npm start`
 - Open: http://127.0.0.1:8000/
 
-The app now loads from [index.html](index.html), with styles in [styles.css](styles.css) and logic in [app.js](app.js).
+The app loads from [index.html](index.html), with styles in [styles.css](styles.css). Logic lives in [app.js](app.js) (event wiring, UI state, orchestration) plus a set of ES modules under [js/](js/): `units.js` (unit conversion), `physics.js` (the calculation engine), `storage.js` (localStorage helpers), `catalog-data.js` (the product/valve/tune catalog), and `canvas-utils.js` (shared canvas drawing helpers).
 
 ## Testing
 
