@@ -5,6 +5,7 @@
   "description": "Standalone browser-based shim stack tuning calculator",
   "scripts": {
     "start": "node server.js",
+    "test": "node test/smoke.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -13,6 +14,7 @@
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
+    "playwright": "^1.62.0",
     "prettier": "^3.9.6"
   }
 }
