@@ -1,5 +1,7 @@
 # Shim Stack Tuner
 
+[![CI](https://github.com/Locksmitch/shim-stack-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/Locksmitch/shim-stack-tuner/actions/workflows/ci.yml)
+
 Shim Stack Tuner is a standalone browser-based tool for exploring shim-stack stiffness and damping-force behavior for suspension valving.
 
 ## What it does
