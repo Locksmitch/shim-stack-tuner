@@ -1,4 +1,12 @@
 
+/* the globals below are invoked from inline event handlers in index.html */
+/* exported setAllFieldUnits, onModUnitChange, switchResultUnit, onDirectCstChange,
+   removeShimRow, moveShimRow, duplicateShimRow, usableByOD, onProductChange,
+   onValveChange, addCatalogShim, saveValveGeom, loadFoxExample, loadCrossoverExample,
+   onLiveModeChange, pinCurrentCurve, clearPins, onAxisSettingChange, clearTarget,
+   onTargetToggle, optimizeToTarget, applyCandidate, clearSuggestions, saveConfig,
+   loadConfig, exportCSV, saveValveSetup, loadValveSetup, deleteValveSetup, resetLayout */
+
 /* =========================================================
    UNITS — length fields are PER-FIELD; force/velocity/modulus use one "result unit"
    ========================================================= */
