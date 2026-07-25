@@ -42,12 +42,97 @@
 
   <div id="warnBox" class="warn-box"></div>
 
-  <div class="grid">
-    <!-- LEFT COLUMN: ONE-TIME SETUP -->
-    <div class="dropcol" id="colLeft">
-      <div class="panel" id="p-geom">
-        <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Damper &amp; valve setup</h2>
-        <p class="hint" style="margin-top:0;">Fill these in once per valve, then move on to the tuning tile below. Everything here is remembered per valve setup.</p>
+  <div class="dropcol" id="colMain">
+    <!-- MAIN WORKSPACE: everything you touch while iterating on a stack, together in one tile -->
+    <div class="panel" id="p-workspace">
+      <h2><span class="chev">▾</span>Shim stack &amp; damping force<span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+      <div class="workspace-grid">
+        <div class="workspace-col">
+          <div class="btnrow" style="margin-top:0;">
+            <button class="small" id="addShimRowBtn">+ Add shim row</button>
+            <button class="small" id="loadExampleBtn">Load metric example</button>
+            <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
+          </div>
+          <div class="stack-table-wrap">
+            <table id="shimTable">
+              <thead><tr><th style="width:52px">Count</th><th>Diameter</th><th>Thickness</th><th>Float<span class="chip" style="margin-left:4px">gap</span></th><th class="col-unit">Unit</th><th></th></tr></thead>
+              <tbody id="shimBody"></tbody>
+            </table>
+          </div>
+          <p class="hint">List shims from the valve face outward — group identical shims using the Count column. Each row has its own unit, so a metric shim and an imported inch shim can sit in the same stack. If your stack has a separate clamp washer and/or nut, add them as regular rows too.</p>
+          <p class="hint"><b>Float</b> is normally 0 (shim always bonded/engaged, the default). Give a "backup" or crossover shim a Float &gt; 0 and it stays disengaged — contributing nothing — until the stack's local deflection right at that shim's own radius reaches the Float value, at which point it locks in and stiffens the stack from then on. That's what lets a stack be genuinely soft at low speed and stiffen at high speed (or vice versa), not just scaled up or down.</p>
+
+          <details class="diagram-box" open>
+            <summary>Live stack preview &amp; deflection animation — updates as you edit</summary>
+            <canvas id="stackCanvas" style="height:260px"></canvas>
+            <div class="slider-row">
+              <label style="min-width:140px; margin:0; font-size:12px;">Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label>
+              <input type="range" id="forceSlider" min="0" max="400" step="1" value="0">
+            </div>
+            <p class="diagram-cap">Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face stiffen the stack most, since fluid pressure loads the outer edge near the port.</p>
+          </details>
+        </div>
+
+        <div class="workspace-col">
+          <div class="btnrow" style="align-items:center; margin-top:0;">
+            <label style="margin:0; font-size:12.5px;"><b>Force axis (Y)</b></label>
+            <select id="axisMode" style="width:auto;">
+              <option value="auto" selected>Auto-scale</option>
+              <option value="fixed">Fixed max</option>
+            </select>
+            <span id="axisMaxWrap" style="display:none;">
+              min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0">
+              max <input type="number" id="axisMaxF" style="width:90px;" step="50"> <span class="uforce">N</span>
+            </span>
+            <label style="margin:0 0 0 10px; font-size:12.5px;"><b>Speed axis (X)</b></label>
+            <select id="xAxisMode" style="width:auto;">
+              <option value="auto" selected>Auto-scale</option>
+              <option value="fixed">Fixed max</option>
+            </select>
+            <span id="xAxisMaxWrap" style="display:none;">
+              max <input type="number" id="axisMaxU" style="width:90px;" step="100"> <span class="uvel">mm/s</span>
+            </span>
+          </div>
+          <div class="btnrow" style="align-items:center; margin-top:6px;">
+            <input type="text" id="pinName" placeholder="curve label (optional)" style="width:150px;">
+            <button class="small" id="pinCurveBtn">📌 Pin curve</button>
+            <button class="small danger" id="clearPinsBtn">Clear pinned</button>
+          </div>
+          <div id="pinList" style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;"></div>
+          <div class="btnrow" style="align-items:center; margin-top:0;">
+            <label class="live-toggle"><input type="checkbox" id="targetOn"> <b>Target curve</b> — drag the dots to shape what you want</label>
+            <button class="small" id="resetTargetBtn">Reset to current</button>
+            <button class="small danger" id="clearTargetBtn">Clear target</button>
+            <span style="flex:1"></span>
+            <span id="targetReadout" class="hint" style="margin:0;"></span>
+          </div>
+          <div class="btnrow" style="align-items:center; margin-top:6px;">
+            <button class="small primary" id="optBtn">🔍 Optimize to target</button>
+            <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
+            <span id="optStatus" class="hint" style="margin:0;"></span>
+          </div>
+          <div id="optResults" style="margin:6px 0;"></div>
+          <p class="hint">Fix the force (Y) axis min/max and/or the shaft-speed (X) axis max to keep the scale constant while you tune, so changes read as real movement instead of the chart rescaling — handy for zooming into the low-speed region. <b>Click any line's legend entry to hide/show it.</b> Pin the current curve before editing to keep it on the chart for comparison. Turn on <b>Target curve</b> to lay a desired curve over the chart: the grey line is the stock tune you loaded (reference), the dashed magenta line is your target — drag its dots up or down to say what force you want at each speed. The readout shows how far the current stack is from that target; <b>Optimize to target</b> searches real FOX shims to close that gap. Pins, axis, and target are remembered between sessions.</p>
+          <canvas id="forceCanvas"></canvas>
+          <div class="datatable-wrap">
+            <table id="resultsTable">
+              <thead><tr>
+                <th>Shaft velocity (<span class="uvel">mm/s</span>)</th>
+                <th id="altVelHeader">Shaft velocity (in/s)</th>
+                <th>Damping force (<span class="uforce">N</span>)</th>
+                <th>Damping coeff. (<span class="uforce">N</span>·s/<span class="ulen">mm</span>)</th>
+                <th>Reynolds #</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="p-geom">
+      <h2><span class="chev">▾</span>Damper &amp; valve setup<span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+      <p class="hint" style="margin-top:0;">Fill these in once per valve, then move on to the tuning tile above. Everything here is remembered per valve setup.</p>
 
         <div class="btnrow" style="align-items:center; margin-top:0;">
           <select id="valveSetups" style="width:auto; min-width:150px;">
@@ -153,14 +238,11 @@
           <div class="field"><label>11. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
         </div>
         <p class="hint">These match the D.rod / D.valve / r.port / d.port / w.port / N.port / d.thrt / N.thrt names used in the original Shim ReStackor manual, so you can copy values straight across if you have them.</p>
-      </div>
     </div>
 
-    <!-- RIGHT COLUMN: SETTINGS (advanced material/oil properties tucked away, calc settings below) -->
-    <div class="dropcol" id="colRight">
-      <div class="panel" id="p-advanced">
-        <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Oil &amp; shim material <span class="chip">advanced</span></h2>
-        <p class="hint" style="margin-top:0;">Collapsed by default — reasonable defaults are already loaded. Expand to dial in your actual oil and shim spec.</p>
+    <div class="panel" id="p-advanced">
+      <h2><span class="chev">▾</span>Oil, shim material &amp; calculation settings <span class="chip">advanced</span><span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+        <p class="hint" style="margin-top:0;">Collapsed by default — reasonable defaults are already loaded. Expand to dial in your actual oil and shim spec, calculation range, or to save/load a config file.</p>
         <div class="field">
           <label>Viscosity input mode</label>
           <select id="viscMode">
@@ -195,11 +277,7 @@
           </div>
           <div class="field"><label>Poisson ratio ν</label><input type="number" id="nu" value="0.3" step="0.01"></div>
         </div>
-      </div>
-
-      <div class="panel" id="p-calc">
-        <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Calculation range &amp; output</h2>
-        <div class="field">
+        <div class="field" style="margin-top:10px;">
           <label>Results &amp; range units</label>
           <select id="resultUnit">
             <option value="mm">Metric — N, mm/s</option>
@@ -223,99 +301,8 @@
           <span id="liveStatus" class="live-status"></span>
         </div>
         <p class="hint">Everything recalculates automatically as you edit. If you're working on a slow device or making many edits at once, untick Live update — a Recalculate button appears in its place.</p>
-      </div>
     </div>
   </div>
-
-  <!-- MAIN WORKSPACE: everything you touch while iterating on a stack, together in one tile -->
-  <div class="dropcol" id="colBottom">
-  <div class="panel" id="p-workspace">
-    <h2><span class="grip" title="Drag to rearrange">⠿</span><span class="chev">▾</span>Shim stack &amp; damping force</h2>
-    <div class="workspace-grid">
-      <div class="workspace-col">
-        <div class="btnrow" style="margin-top:0;">
-          <button class="small" id="addShimRowBtn">+ Add shim row</button>
-          <button class="small" id="loadExampleBtn">Load metric example</button>
-          <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
-        </div>
-        <div class="stack-table-wrap">
-          <table id="shimTable">
-            <thead><tr><th style="width:52px">Count</th><th>Diameter</th><th>Thickness</th><th>Float<span class="chip" style="margin-left:4px">gap</span></th><th class="col-unit">Unit</th><th></th></tr></thead>
-            <tbody id="shimBody"></tbody>
-          </table>
-        </div>
-        <p class="hint">List shims from the valve face outward — group identical shims using the Count column. Each row has its own unit, so a metric shim and an imported inch shim can sit in the same stack. If your stack has a separate clamp washer and/or nut, add them as regular rows too.</p>
-        <p class="hint"><b>Float</b> is normally 0 (shim always bonded/engaged, the default). Give a "backup" or crossover shim a Float &gt; 0 and it stays disengaged — contributing nothing — until the stack's local deflection right at that shim's own radius reaches the Float value, at which point it locks in and stiffens the stack from then on. That's what lets a stack be genuinely soft at low speed and stiffen at high speed (or vice versa), not just scaled up or down.</p>
-
-        <details class="diagram-box" open>
-          <summary>Live stack preview &amp; deflection animation — updates as you edit</summary>
-          <canvas id="stackCanvas" style="height:260px"></canvas>
-          <div class="slider-row">
-            <label style="min-width:140px; margin:0; font-size:12px;">Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label>
-            <input type="range" id="forceSlider" min="0" max="400" step="1" value="0">
-          </div>
-          <p class="diagram-cap">Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face stiffen the stack most, since fluid pressure loads the outer edge near the port.</p>
-        </details>
-      </div>
-
-      <div class="workspace-col">
-        <div class="btnrow" style="align-items:center; margin-top:0;">
-          <label style="margin:0; font-size:12.5px;"><b>Force axis (Y)</b></label>
-          <select id="axisMode" style="width:auto;">
-            <option value="auto" selected>Auto-scale</option>
-            <option value="fixed">Fixed max</option>
-          </select>
-          <span id="axisMaxWrap" style="display:none;">
-            min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0">
-            max <input type="number" id="axisMaxF" style="width:90px;" step="50"> <span class="uforce">N</span>
-          </span>
-          <label style="margin:0 0 0 10px; font-size:12.5px;"><b>Speed axis (X)</b></label>
-          <select id="xAxisMode" style="width:auto;">
-            <option value="auto" selected>Auto-scale</option>
-            <option value="fixed">Fixed max</option>
-          </select>
-          <span id="xAxisMaxWrap" style="display:none;">
-            max <input type="number" id="axisMaxU" style="width:90px;" step="100"> <span class="uvel">mm/s</span>
-          </span>
-        </div>
-        <div class="btnrow" style="align-items:center; margin-top:6px;">
-          <input type="text" id="pinName" placeholder="curve label (optional)" style="width:150px;">
-          <button class="small" id="pinCurveBtn">📌 Pin curve</button>
-          <button class="small danger" id="clearPinsBtn">Clear pinned</button>
-        </div>
-        <div id="pinList" style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;"></div>
-        <div class="btnrow" style="align-items:center; margin-top:0;">
-          <label class="live-toggle"><input type="checkbox" id="targetOn"> <b>Target curve</b> — drag the dots to shape what you want</label>
-          <button class="small" id="resetTargetBtn">Reset to current</button>
-          <button class="small danger" id="clearTargetBtn">Clear target</button>
-          <span style="flex:1"></span>
-          <span id="targetReadout" class="hint" style="margin:0;"></span>
-        </div>
-        <div class="btnrow" style="align-items:center; margin-top:6px;">
-          <button class="small primary" id="optBtn">🔍 Optimize to target</button>
-          <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
-          <span id="optStatus" class="hint" style="margin:0;"></span>
-        </div>
-        <div id="optResults" style="margin:6px 0;"></div>
-        <p class="hint">Fix the force (Y) axis min/max and/or the shaft-speed (X) axis max to keep the scale constant while you tune, so changes read as real movement instead of the chart rescaling — handy for zooming into the low-speed region. <b>Click any line's legend entry to hide/show it.</b> Pin the current curve before editing to keep it on the chart for comparison. Turn on <b>Target curve</b> to lay a desired curve over the chart: the grey line is the stock tune you loaded (reference), the dashed magenta line is your target — drag its dots up or down to say what force you want at each speed. The readout shows how far the current stack is from that target; <b>Optimize to target</b> searches real FOX shims to close that gap. Pins, axis, and target are remembered between sessions.</p>
-        <canvas id="forceCanvas"></canvas>
-        <div class="datatable-wrap">
-          <table id="resultsTable">
-            <thead><tr>
-              <th>Shaft velocity (<span class="uvel">mm/s</span>)</th>
-              <th id="altVelHeader">Shaft velocity (in/s)</th>
-              <th>Damping force (<span class="uforce">N</span>)</th>
-              <th>Damping coeff. (<span class="uforce">N</span>·s/<span class="ulen">mm</span>)</th>
-              <th>Reynolds #</th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-  </div><!-- /colBottom -->
-
 </div>
 
 <footer>Shim Stack Tuner — independent open-source style tool, offline &amp; self-contained. Not affiliated with any commercial suspension-valving software.</footer>

@@ -44,16 +44,6 @@ header p {
   margin: 0 auto;
   padding: 16px;
 }
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-@media (max-width: 900px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
 .workspace-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -91,15 +81,24 @@ header p {
   cursor: pointer;
   user-select: none;
 }
-.panel h2 .grip {
-  cursor: grab;
-  color: var(--muted);
-  font-size: 15px;
-  padding: 0 2px;
-  line-height: 1;
+.panel h2 .panel-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
 }
-.panel h2 .grip:active {
-  cursor: grabbing;
+.panel h2 .panel-move {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.panel h2 .panel-move:hover {
+  background: #f0f2f5;
+  color: var(--ink);
 }
 .panel h2 .chev {
   display: inline-block;
@@ -117,11 +116,6 @@ header p {
 }
 .panel.collapsed h2 {
   margin-bottom: 0;
-}
-.panel.dragging {
-  opacity: 0.55;
-  outline: 2px dashed var(--accent);
-  outline-offset: 2px;
 }
 .dropcol {
   min-height: 30px;

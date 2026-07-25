@@ -2102,7 +2102,7 @@ function deleteValveSetup() {
 /* ---- collapsible + draggable panels, saved layout ---- */
 const LAYOUT_KEY = 'sst_layout_v1';
 const COLLAPSE_KEY = 'sst_collapsed_v1';
-const DEFAULT_LAYOUT = { colLeft: ['p-geom'], colRight: ['p-advanced', 'p-calc'], colBottom: ['p-workspace'] };
+const DEFAULT_LAYOUT = { colMain: ['p-workspace', 'p-geom', 'p-advanced'] };
 // The oil/shim-material panel is advanced/rarely-touched, so it starts collapsed —
 // both for a brand-new user (nothing in localStorage yet) and after "Reset layout".
 const DEFAULT_COLLAPSED = ['p-advanced'];
@@ -2132,17 +2132,28 @@ function applyCollapsed() {
 }
 function gatherLayout() {
   const ids = (col) => [...document.getElementById(col).children].map((p) => p.id).filter(Boolean);
-  return { colLeft: ids('colLeft'), colRight: ids('colRight'), colBottom: ids('colBottom') };
+  return { colMain: ids('colMain') };
 }
 function applyLayout(layout) {
   if (!layout) return;
-  ['colLeft', 'colRight', 'colBottom'].forEach((colId) => {
+  ['colMain'].forEach((colId) => {
     const col = document.getElementById(colId);
     (layout[colId] || []).forEach((pid) => {
       const p = document.getElementById(pid);
       if (p && col) col.appendChild(p);
     });
   });
+}
+// Swap a panel with its previous (dir<0) or next (dir>0) sibling — a no-op at
+// either end of the list. This is the whole reorder UI: no drag-and-drop.
+function movePanel(panel, dir) {
+  const col = panel.parentElement;
+  if (!col) return;
+  if (dir < 0 && panel.previousElementSibling) col.insertBefore(panel, panel.previousElementSibling);
+  else if (dir > 0 && panel.nextElementSibling) col.insertBefore(panel.nextElementSibling, panel);
+  else return;
+  saveLayout();
+  redrawAllVisuals();
 }
 function saveLayout() {
   lsSet(LAYOUT_KEY, gatherLayout());
@@ -2159,53 +2170,18 @@ function resetLayout() {
   redrawAllVisuals();
 }
 
-let dragPanel = null;
 function initPanelUX() {
   document.querySelectorAll('.panel[id^="p-"]').forEach((p) => {
     const h2 = p.querySelector('h2');
     if (!h2) return;
-    // click header (not the grip) toggles collapse
+    // click header (not a move button) toggles collapse
     h2.addEventListener('click', (e) => {
-      if (e.target.classList.contains('grip')) return;
+      if (e.target.closest('.panel-move')) return;
       togglePanel(p);
     });
-    // grip drags the whole panel
-    const grip = h2.querySelector('.grip');
-    if (grip) {
-      grip.setAttribute('draggable', 'true');
-      grip.addEventListener('dragstart', (e) => {
-        dragPanel = p;
-        p.classList.add('dragging');
-        try {
-          e.dataTransfer.setData('text/plain', p.id);
-          e.dataTransfer.effectAllowed = 'move';
-        } catch (err) {}
-      });
-      grip.addEventListener('dragend', () => {
-        if (dragPanel) dragPanel.classList.remove('dragging');
-        dragPanel = null;
-        saveLayout();
-        redrawAllVisuals();
-      });
-    }
-  });
-  document.querySelectorAll('.dropcol').forEach((col) => {
-    col.addEventListener('dragover', (e) => {
-      if (!dragPanel) return;
-      e.preventDefault();
-      const panels = [...col.querySelectorAll(':scope > .panel:not(.dragging)')];
-      let placed = false;
-      for (const el of panels) {
-        const r = el.getBoundingClientRect();
-        if (e.clientY < r.top + r.height / 2) {
-          col.insertBefore(dragPanel, el);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) col.appendChild(dragPanel);
+    h2.querySelectorAll('.panel-move').forEach((btn) => {
+      btn.addEventListener('click', () => movePanel(p, btn.dataset.dir === 'up' ? -1 : 1));
     });
-    col.addEventListener('drop', (e) => e.preventDefault());
   });
 }
 
