@@ -48,7 +48,11 @@
       <h2><span class="chev">▾</span>Shim stack &amp; damping force<span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
       <div class="workspace-grid">
         <div class="workspace-col">
-          <div class="btnrow" style="margin-top:0;">
+          <div class="field" style="max-width:260px;"><label>Clamp diameter, D.clamp (where it bends from)</label>
+            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <p class="hint">The OD of the clamp washer / piston land that pins the stack — only the material outside this diameter flexes, so it's the true inner boundary of the bending model (marked on the live preview below). Make it larger to shorten the bending span (stiffer), smaller for a longer, softer span. It must be smaller than the largest shim OD and at least the shim ID (set in the setup tile).</p>
+          <div class="btnrow" style="margin-top:10px;">
             <button class="small" id="addShimRowBtn">+ Add shim row</button>
             <button class="small" id="loadExampleBtn">Load metric example</button>
             <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
@@ -209,11 +213,8 @@
           <div class="field"><label>4. Shim ID, D.hole (hole for the shaft/post)</label>
             <div class="unitpair"><input type="number" id="stackID" value="12" step="0.1"><select class="fieldUnit" data-for="stackID" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
-          <div class="field"><label>5. Clamp diameter, D.clamp (where it bends from)</label>
-            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
         </div>
-        <p class="hint">The <b>shim ID</b> is just the center hole (must clear the shaft). The <b>clamp diameter</b> — the OD of the clamp washer / piston land that pins the stack — is what the shims actually bend off: only the material outside this diameter flexes, so it's the true inner boundary of the bending model. Make the clamp diameter larger to shorten the bending span (stiffer), smaller for a longer, softer span. It must be smaller than the largest shim OD and at least the shim ID.</p>
+        <p class="hint">The <b>shim ID</b> is just the center hole (must clear the shaft). Clamp diameter — the other half of the bending model — has moved to the tuning tile above, next to the shim table it directly affects.</p>
 
         <details class="diagram-box" open>
           <summary>Live diagram — valve port face (updates as you edit)</summary>
@@ -222,20 +223,20 @@
         </details>
 
         <div class="checklist">
-          <div class="field"><label>6. r.port, port inner radius</label>
+          <div class="field"><label>5. r.port, port inner radius</label>
             <div class="unitpair"><input type="number" id="rPort" value="10.5" step="0.1"><select class="fieldUnit" data-for="rPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
-          <div class="field"><label>7. d.port, port radial length</label>
+          <div class="field"><label>6. d.port, port radial length</label>
             <div class="unitpair"><input type="number" id="dPort" value="9" step="0.1"><select class="fieldUnit" data-for="dPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
-          <div class="field"><label>8. w.port, port perimeter width</label>
+          <div class="field"><label>7. w.port, port perimeter width</label>
             <div class="unitpair"><input type="number" id="wPort" value="12" step="0.1"><select class="fieldUnit" data-for="wPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
-          <div class="field"><label>9. N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1"></div>
-          <div class="field"><label>10. d.thrt, throat dia — 0 = none</label>
+          <div class="field"><label>8. N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1"></div>
+          <div class="field"><label>9. d.thrt, throat dia — 0 = none</label>
             <div class="unitpair"><input type="number" id="dThrt" value="0" step="0.1"><select class="fieldUnit" data-for="dThrt" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
           </div>
-          <div class="field"><label>11. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
+          <div class="field"><label>10. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
         </div>
         <p class="hint">These match the D.rod / D.valve / r.port / d.port / w.port / N.port / d.thrt / N.thrt names used in the original Shim ReStackor manual, so you can copy values straight across if you have them.</p>
     </div>
