@@ -1568,7 +1568,14 @@ function runOptimize(v, catalog) {
       cc.unshift(f);
     } else if (fi < 0) {
       const ths = thksFor(faceOD);
-      cc.unshift({ count: 1, od: faceOD, thk: ths[0] });
+      // Normally faceOD is itself a real catalog OD, so ths[0] is always defined. Fall
+      // back to the catalog entry closest to faceOD on the rare chance a product/valve
+      // is defined with a faceOD that doesn't exactly match one of its own tune rows.
+      const thk = ths.length
+        ? ths[0]
+        : catalog.reduce((best, s) => (Math.abs(s.od - faceOD) < Math.abs(best.od - faceOD) ? s : best), catalog[0])
+            .thk;
+      cc.unshift({ count: 1, od: faceOD, thk });
     }
     return cc;
   };
@@ -1724,7 +1731,10 @@ function runOptimize(v, catalog) {
       const j = 1 + Math.floor(Math.random() * Math.max(1, pert.length - 1));
       if (pert[j]) {
         const ths = thksFor(pert[j].od);
-        pert[j].thk = ths[Math.floor(Math.random() * ths.length)];
+        // A row whose OD isn't an exact catalog match (e.g. still holding a
+        // generic/manually-entered dimension) has no catalog thicknesses to pick
+        // from — leave its thickness alone rather than perturbing to undefined.
+        if (ths.length) pert[j].thk = ths[Math.floor(Math.random() * ths.length)];
         pert[j].count = Math.max(1, pert[j].count + (Math.random() < 0.5 ? -1 : 1));
       }
     }

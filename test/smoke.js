@@ -74,6 +74,13 @@ async function run() {
       throw new Error(`Expected #shimBody to grow by 1 row, went from ${shimRowsBefore} to ${shimRowsAfter}`);
     }
 
+    // Turn on the target curve and run the optimizer on the default, out-of-the-box
+    // stack (no product/valve/tune selection needed). This previously crashed on first
+    // use for any user - see the ensureFace()/thksFor() fix in runOptimize.
+    await page.locator('#targetOn').check();
+    await page.click('#optBtn');
+    await page.waitForTimeout(1500);
+
     if (errors.length > 0) {
       throw new Error('Console/page errors detected:\n' + errors.join('\n'));
     }
