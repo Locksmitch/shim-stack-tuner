@@ -922,6 +922,7 @@ function drawStackAtSlider() {
   const Fbase = convForce(Fdisp, resultUnit, 'mm');
   const profile = currentStack.profileAt(Fbase); // {rs, ys} in mm
   const aMM = (currentGeom.clampDia && currentGeom.clampDia > 0 ? currentGeom.clampDia : currentGeom.stackID) / 2;
+  const shaftMM = (currentGeom.stackID || 0) / 2;
   const engageF = currentStack.engageF || [];
   function liftAt(r) {
     return interpArr(profile.rs, profile.ys, r);
@@ -944,6 +945,14 @@ function drawStackAtSlider() {
     const rs = [],
       yB = [],
       yT = [];
+    // The material between the shaft and the clamp boundary is clamped rigid (it's what
+    // the bending model treats as immovable) but it's still real shim material, so it's
+    // drawn flat out to the clamp line rather than leaving a gap at the shaft.
+    if (shaftMM < aMM) {
+      rs.push(convLen(shaftMM, 'mm', resultUnit));
+      yB.push(convLen(yRest, 'mm', resultUnit));
+      yT.push(convLen(yRest + hRow, 'mm', resultUnit));
+    }
     let runMax = 0; // contact offset carried outward — a plate can't dip back down mid-span
     for (let s = 0; s <= N; s++) {
       const r = aMM + ((rOuter - aMM) * s) / N;
@@ -972,7 +981,7 @@ function drawStackAtSlider() {
   // hole in the shims themselves), not D.rod — a separate, unrelated dimension further
   // up the damper at the seal. stackID is meant to stay <= clampDia (per the geometry
   // panel's own hint text), so this normally doesn't overlap the clamp-diameter line.
-  const shaftDisp = convLen((currentGeom.stackID || 0) / 2, 'mm', resultUnit);
+  const shaftDisp = convLen(shaftMM, 'mm', resultUnit);
   drawStackCanvas(bands, rLoadDisp, clampDisp, shaftDisp);
 }
 
