@@ -14,6 +14,24 @@ function waltherViscosityAt(cSt40, cSt100, tempC) {
   return Math.max(0.5, Math.pow(10, Math.pow(10, yq)) - 0.7);
 }
 
+// Delta ("triangle") shims - e.g. RockShox 9x23T - reach the same OD as a round shim,
+// but only the three lobes of an equilateral triangle carry load out there. For a
+// triangle inscribed with its vertices at radius R (the quoted OD), the inradius is R/2:
+// inside that, it's still a full disc (coverage 1). Between R/2 and R, the fraction of
+// the circle of radius r that falls inside the triangle is the exact geometric result
+// 1 - 3*acos(R/(2r))/pi (three identical arcs cut off by the triangle's sides). That's
+// why a delta shim gives the reach/port-coverage of a big shim with far less rim
+// stiffness. A small floor keeps the solver stable right at the tip radius.
+export const DELTA_MIN_COV = 0.06;
+export function deltaCoverage(outerR, r) {
+  const outer = Math.max(outerR, 1e-9);
+  const inner = outer / 2;
+  if (r <= inner + 1e-9) return 1;
+  if (r >= outer - 1e-9) return DELTA_MIN_COV;
+  const c = Math.max(-1, Math.min(1, outer / (2 * r)));
+  return Math.max(DELTA_MIN_COV, 1 - (3 * Math.acos(c)) / Math.PI);
+}
+
 /* =========================================================
    PHYSICS ENGINE (always works in base mm / N / MPa / mm-s)
    ========================================================= */
@@ -81,11 +99,18 @@ export function buildStack(rows, geom, mech, opts) {
   // thin ones of equal total height — e.g. FOX's Rebound MED+ (6× .0045in) is correctly
   // firmer than Rebound LIGHT (9× .0032in), which a bonded model gets backwards.
   // Inter-shim friction would add some stiffness on top of this free-sliding lower bound.
+  function shimScaleAt(row, r) {
+    if (!row || row.type !== 'deltaT') return 1;
+    return deltaCoverage(row.diam / 2, r);
+  }
   function cubeSumAt(r, engagedState) {
     let s = 0;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.diam / 2 >= r - 1e-9 && engagedState[i]) s += row.count * Math.pow(row.thickness, 3);
+      if (row.diam / 2 >= r - 1e-9 && engagedState[i]) {
+        const scale = shimScaleAt(row, r);
+        s += row.count * Math.pow(row.thickness, 3) * scale;
+      }
     }
     return s;
   }

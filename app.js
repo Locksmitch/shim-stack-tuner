@@ -1,8 +1,9 @@
 import { convLen, convForce, convVel, convMod, fmtLen, fmtForce, fmtVel } from './js/units.js';
 import { interpArr, stackGapAt, stackSupportedAt, buildStack, solveForceAtVelocity } from './js/physics.js';
 import { lsGet, lsSet } from './js/storage.js';
-import { IN, canonThk, PRODUCTS, usableShims } from './js/catalog-data.js';
-import { setupCanvas, drawAxes } from './js/canvas-utils.js';
+import { IN, canonThk, PRODUCTS, usableShims, loadCatalog } from './js/catalog-data.js';
+import { setupCanvas, drawAxes, defaultTickFmt, themeColor, isDarkTheme } from './js/canvas-utils.js';
+import { circleFrom3Points, computePortGeometryFromOutline, findStrongestEdgeNear } from './js/photo-measure.js';
 
 let resultUnit = 'mm'; // display unit for force/velocity/outputs
 
@@ -93,8 +94,6 @@ function switchResultUnit(newU) {
   document.querySelectorAll('.uforce').forEach((el) => (el.textContent = newU === 'mm' ? 'N' : 'lbf'));
   document.querySelectorAll('.uvel').forEach((el) => (el.textContent = newU === 'mm' ? 'mm/s' : 'in/s'));
   document.querySelectorAll('.ulen').forEach((el) => (el.textContent = newU === 'mm' ? 'mm' : 'in'));
-  const altU = newU === 'mm' ? 'in' : 'mm';
-  document.getElementById('altVelHeader').textContent = `Shaft velocity (${altU === 'mm' ? 'mm/s' : 'in/s'})`;
   document.getElementById('sliderVal').textContent = fmtForce(parseFloat(slider.value), newU);
   if (currentStack) {
     drawStackAtSlider();
@@ -176,6 +175,15 @@ let currentStack = null;
 let currentGeom = null;
 let currentRows = null;
 let currentResults = []; // {u, F, Re} always stored in BASE units (mm/s, N)
+// The live stack preview's locked Y-axis scale (mm, canonical) - recomputed once per calc in
+// runCalc() from the worst-case (max configured force) state, then reused for every slider
+// position by drawStackAtSlider(). See computeStackYMaxMM()/drawStackCanvas() for why this
+// needs to stay fixed across a single calc rather than tracking the current slider force.
+let stackYMaxLockedMM = 1;
+// Snapshot of the last successfully-computed stack, written on every calc so other pages
+// (e.g. the Wheel Force Curve tool) can live-sync a compression valve config from this tab
+// without an explicit export/import step. Same shape as gatherConfig() below.
+const LIVE_CONFIG_KEY = 'sst_live_config_v1';
 const SHIM_PALETTE = [
   { fill: '#c7d6fb', stroke: '#2f6fed' },
   { fill: '#c8ecd9', stroke: '#0f9d58' },
@@ -187,7 +195,32 @@ const SHIM_PALETTE = [
 ];
 const CLAMP_COLOR = { fill: '#f4d9a0', stroke: '#b8860b' };
 
-function addShimRow(count, diam, thickness, unit, isSpecial, float) {
+// Brief visual cue so a row you just added, duplicated, or reordered is easy to spot -
+// see the .row-moved rule in styles.css for the actual background fade.
+function flashRow(tr) {
+  tr.classList.remove('row-moved');
+  void tr.offsetWidth; // restart the transition if this row is already flashing
+  tr.classList.add('row-moved');
+  setTimeout(() => tr.classList.remove('row-moved'), 500);
+}
+// Reordering rows happens instantly (insertBefore), so without help a moved row just
+// teleports to its new slot. This is a quick FLIP: the caller passes how far the row's
+// top moved (old top minus new top); we start it visually offset by that same amount and
+// let the CSS transition (see #shimBody tr in styles.css) ease it back to 0, so it visibly
+// slides from its old position to its new one - showing which direction it moved.
+function animateRowMove(tr, deltaY) {
+  flashRow(tr);
+  if (!deltaY) return;
+  tr.style.transition = 'none';
+  tr.style.transform = `translateY(${deltaY}px)`;
+  void tr.offsetHeight; // force layout so the offset above applies before we clear it
+  requestAnimationFrame(() => {
+    tr.style.transition = '';
+    tr.style.transform = '';
+  });
+}
+
+function addShimRow(count, diam, thickness, unit, isSpecial, float, shimType) {
   const tbody = document.getElementById('shimBody');
   // Called with no arguments (the "+ Add shim row" button): clone the LAST row's unit
   // and dimensions so the new shim fits the stack being edited — an inch preset gets a
@@ -203,11 +236,13 @@ function addShimRow(count, diam, thickness, unit, isSpecial, float) {
       count = 1;
       float = 0;
       isSpecial = null;
+      shimType = last.querySelector('.rowType')?.value || 'round';
     }
   }
   const tr = document.createElement('tr');
   if (isSpecial) tr.className = isSpecial;
   const u = unit || 'mm';
+  const type = shimType || 'round';
   const lenStep = u === 'mm' ? '1' : '0.025';
   const thickStep = u === 'mm' ? '0.05' : '0.0005';
   tr.innerHTML = `
@@ -215,11 +250,13 @@ function addShimRow(count, diam, thickness, unit, isSpecial, float) {
     <td><input type="number" value="${diam ?? 30}" step="${lenStep}" class="cDiam"></td>
     <td><input type="number" value="${thickness ?? 0.25}" step="${thickStep}" class="cThick"></td>
     <td><input type="number" value="${float ?? 0}" step="${thickStep}" class="cFloat" title="0 = always engaged. Positive = gap that must close before this shim contributes."></td>
+    <td class="col-type"><select class="rowType"><option value="round"${type === 'round' ? ' selected' : ''}>Round</option><option value="deltaT"${type === 'deltaT' ? ' selected' : ''}>Delta T</option></select></td>
     <td class="col-unit"><select class="rowUnit" data-unit="${u}"><option value="mm"${u === 'mm' ? ' selected' : ''}>mm</option><option value="in"${u === 'in' ? ' selected' : ''}>in</option></select></td>
     <td class="col-remove">
       <button class="small rowbtn" title="Move up (toward valve face)" data-action="up">↑</button><button class="small rowbtn" title="Move down (toward clamp)" data-action="down">↓</button><button class="small rowbtn" title="Duplicate this row below" data-action="dup">⧉</button><button class="small danger rowbtn" title="Remove row" data-action="remove">✕</button>
     </td>`;
   tbody.appendChild(tr);
+  flashRow(tr);
   drawShimRefDiagram();
   scheduleLiveCalc();
   refreshCustomState();
@@ -233,8 +270,10 @@ function removeShimRow(btn) {
 }
 function moveShimRow(btn, dir) {
   const tr = btn.closest('tr');
+  const beforeTop = tr.getBoundingClientRect().top;
   if (dir < 0 && tr.previousElementSibling) tr.parentNode.insertBefore(tr, tr.previousElementSibling);
   else if (dir > 0 && tr.nextElementSibling) tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+  animateRowMove(tr, beforeTop - tr.getBoundingClientRect().top);
   drawShimRefDiagram();
   scheduleLiveCalc();
   refreshCustomState();
@@ -251,6 +290,7 @@ function duplicateShimRow(btn) {
   );
   const newTr = tr.parentNode.lastElementChild;
   tr.parentNode.insertBefore(newTr, tr.nextSibling);
+  flashRow(newTr);
   drawShimRefDiagram();
   scheduleLiveCalc();
   refreshCustomState();
@@ -279,6 +319,11 @@ function drawPortFaceDiagram() {
 function drawPortFaceDiagramInner() {
   const cv = document.getElementById('portFaceCanvas');
   if (!cv) return;
+  // Labels live in the HTML legend beside the canvas (see #portFaceCount/#portFaceNote in
+  // shim-stack-tuner.html), not drawn into the canvas - canvas text is a fixed px size that
+  // doesn't track the page's own font sizing, so it read inconsistently against real HTML text.
+  const countEl = document.getElementById('portFaceCount');
+  const noteEl = document.getElementById('portFaceNote');
   const { ctx, w, h } = setupCanvas(cv);
   ctx.clearRect(0, 0, w, h);
   const rPort = getFieldMM('rPort'),
@@ -288,16 +333,20 @@ function drawPortFaceDiagramInner() {
   const dValve = getFieldMM('dValve'),
     dRod = getFieldMM('dRod');
   if (rPort <= 0 || dPort <= 0 || wPort <= 0 || nPort < 1 || dValve <= 0) {
-    ctx.fillStyle = '#9aa3b0';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Enter r.port, d.port, w.port, N.port and D.valve to draw the port face.', 14, h / 2);
+    if (countEl) countEl.textContent = '';
+    if (noteEl) {
+      noteEl.textContent = 'Enter r.port, d.port, w.port, N.port and D.valve to draw the port face.';
+      noteEl.classList.remove('legend-note');
+      noteEl.style.display = '';
+    }
     return;
   }
+  if (noteEl) noteEl.classList.add('legend-note');
   const rOut = rPort + dPort;
   const rBody = Math.max(dValve / 2, rOut * 1.06);
   const cx = w / 2,
     cy = h / 2;
-  const k = (Math.min(w, h) / 2 - 14) / rBody; // mm -> px
+  const k = (Math.min(w, h) / 2 - 10) / rBody; // mm -> px
 
   // body + shaft
   ctx.beginPath();
@@ -315,11 +364,6 @@ function drawPortFaceDiagramInner() {
     ctx.strokeStyle = '#5b6472';
     ctx.lineWidth = 1.1;
     ctx.stroke();
-    ctx.fillStyle = '#5b6472';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('shaft', cx, cy + 3);
-    ctx.textAlign = 'left';
   }
 
   // ports: angular width taken at the OUTER edge (w.port is the width there)
@@ -339,53 +383,360 @@ function drawPortFaceDiagramInner() {
     ctx.stroke();
   }
 
-  // dimension callouts on the first (top) port
+  // dimension callouts on the first (top) port - colors match the legend swatches
   const aC = -Math.PI / 2 + (nPort === 1 ? Math.PI / 2 : 0);
   const dirX = Math.cos(aC),
     dirY = Math.sin(aC);
   // r.port: center -> inner edge
   ctx.strokeStyle = '#c0392b';
-  ctx.lineWidth = 1.3;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx, cy);
   ctx.lineTo(cx + dirX * rPort * k, cy + dirY * rPort * k);
   ctx.stroke();
-  ctx.fillStyle = '#c0392b';
-  ctx.font = '11px sans-serif';
-  ctx.fillText('r.port', cx + dirX * rPort * k * 0.5 + 4, cy + dirY * rPort * k * 0.5);
   // d.port: inner edge -> outer edge
   ctx.strokeStyle = '#0f9d58';
-  ctx.lineWidth = 1.3;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx + dirX * rPort * k, cy + dirY * rPort * k);
   ctx.lineTo(cx + dirX * rOut * k, cy + dirY * rOut * k);
   ctx.stroke();
-  ctx.fillStyle = '#0f9d58';
-  ctx.fillText('d.port', cx + dirX * (rPort + dPort * 0.5) * k + 4, cy + dirY * (rPort + dPort * 0.5) * k);
   // w.port: chord across the outer edge of the first port
   const px1 = cx + Math.cos(aC - halfAng) * rOut * k,
     py1 = cy + Math.sin(aC - halfAng) * rOut * k;
   const px2 = cx + Math.cos(aC + halfAng) * rOut * k,
     py2 = cy + Math.sin(aC + halfAng) * rOut * k;
   ctx.strokeStyle = '#2f6fed';
-  ctx.lineWidth = 1.3;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(px1, py1);
   ctx.lineTo(px2, py2);
   ctx.stroke();
-  ctx.fillStyle = '#2f6fed';
-  ctx.fillText('w.port', (px1 + px2) / 2 + 6, (py1 + py2) / 2 - 6);
 
-  ctx.fillStyle = '#1c2430';
-  ctx.font = '11px sans-serif';
-  ctx.fillText(`N.port = ${nPort}`, 8, 16);
-  if (rOut > dValve / 2 + 1e-9) {
-    ctx.fillStyle = '#c0392b';
-    ctx.fillText('note: r.port + d.port exceeds the valve radius', 8, h - 8);
-  } else if (overlap) {
-    ctx.fillStyle = '#c0392b';
-    ctx.fillText('note: ports this wide would overlap each other', 8, h - 8);
+  if (countEl) countEl.textContent = `N.port = ${nPort}`;
+  if (noteEl) {
+    if (rOut > dValve / 2 + 1e-9) {
+      noteEl.textContent = 'Note: r.port + d.port exceeds the valve radius.';
+      noteEl.style.display = '';
+    } else if (overlap) {
+      noteEl.textContent = 'Note: ports this wide would overlap each other.';
+      noteEl.style.display = '';
+    } else {
+      noteEl.textContent = '';
+      noteEl.style.display = 'none';
+    }
   }
+}
+
+/* =========================================================
+   PHOTO-ASSISTED PORT MEASUREMENT
+   Lets the user trace 3 points on the valve's outer edge (to set scale from D.valve), then
+   a freeform outline (3+ points, any shape - sharp sector, rounded, kidney, D-shaped)
+   around one or more ports directly on an uploaded photo. Each click snaps to the nearest
+   real edge in the photo (a local Sobel gradient search - see findStrongestEdgeNear in
+   photo-measure.js) so clicks don't need to be pixel-perfect. r.port/d.port/w.port are
+   computed per traced port (matching the model drawn above: an annular sector from r.port
+   to r.port+d.port, w.port as an outer-edge arc width - see computePortGeometryFromOutline)
+   then averaged across however many ports were traced. Click points are stored in the
+   PHOTO'S OWN natural pixel space (not canvas/CSS pixels) so the overlay and the edge-snap
+   search both stay correctly anchored to the image if the canvas is later resized -
+   photoImageToCanvasPt re-projects them at draw time.
+   ========================================================= */
+let photoImg = null;
+let photoOffscreenCtx = null; // full-resolution copy of photoImg, read for edge-snapping
+let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the image is CURRENTLY drawn
+let photoStep = 'calibrate'; // 'calibrate' | 'trace'
+let photoCalibPts = []; // clicked points, in image-natural-pixel space
+let photoCenter = null; // image-natural-pixel space
+let photoRadiusImgPx = null;
+let photoMmPerPx = null;
+let photoCurrentTrace = []; // points of the port currently being traced (image space)
+let photoCompletedPorts = []; // [{points, result:{rPort,dPort,wPort}}] - one per traced port
+let photoOtherPortsCount = 0; // extra ports seen but not traced, for the N.port suggestion
+let photoSnapEnabled = true;
+
+function photoCanvasToImagePt(x, y) {
+  return {
+    x: ((x - photoDrawRect.x) * photoImg.naturalWidth) / photoDrawRect.w,
+    y: ((y - photoDrawRect.y) * photoImg.naturalHeight) / photoDrawRect.h,
+  };
+}
+function photoImageToCanvasPt(pt) {
+  return {
+    x: photoDrawRect.x + (pt.x * photoDrawRect.w) / photoImg.naturalWidth,
+    y: photoDrawRect.y + (pt.y * photoDrawRect.h) / photoImg.naturalHeight,
+  };
+}
+
+// Reads a small region of the FULL-RESOLUTION image (not the possibly-downscaled on-screen
+// canvas, so a display that's shrunk to fit still snaps against real detail) around
+// (imgX, imgY) and snaps to the strongest nearby edge, in image-natural-pixel space.
+function photoSnapPoint(imgX, imgY) {
+  if (!photoSnapEnabled || !photoOffscreenCtx) return { x: imgX, y: imgY };
+  const radius = 12,
+    pad = 2;
+  const x0 = Math.max(0, Math.floor(imgX - radius - pad));
+  const y0 = Math.max(0, Math.floor(imgY - radius - pad));
+  const x1 = Math.min(photoImg.naturalWidth, Math.ceil(imgX + radius + pad));
+  const y1 = Math.min(photoImg.naturalHeight, Math.ceil(imgY + radius + pad));
+  const w = x1 - x0,
+    h = y1 - y0;
+  if (w <= 2 || h <= 2) return { x: imgX, y: imgY };
+  const region = photoOffscreenCtx.getImageData(x0, y0, w, h);
+  const found = findStrongestEdgeNear(region, imgX - x0, imgY - y0, radius, 150);
+  return found ? { x: x0 + found.x, y: y0 + found.y } : { x: imgX, y: imgY };
+}
+
+function photoAveraged() {
+  if (photoCompletedPorts.length === 0) return null;
+  const sum = photoCompletedPorts.reduce(
+    (acc, p) => ({
+      rPort: acc.rPort + p.result.rPort,
+      dPort: acc.dPort + p.result.dPort,
+      wPort: acc.wPort + p.result.wPort,
+    }),
+    { rPort: 0, dPort: 0, wPort: 0 },
+  );
+  const n = photoCompletedPorts.length;
+  return { rPort: sum.rPort / n, dPort: sum.dPort / n, wPort: sum.wPort / n };
+}
+
+function photoCurrentInstruction() {
+  if (!photoImg) return 'Choose a photo to begin.';
+  if (photoStep === 'calibrate') {
+    const n = photoCalibPts.length;
+    return n === 0
+      ? "Click 3 points anywhere along the valve's outer edge."
+      : `${3 - n} more point${3 - n === 1 ? '' : 's'} needed on the outer edge (${n}/3 placed).`;
+  }
+  const n = photoCurrentTrace.length;
+  return n === 0
+    ? 'Click points around this port\'s boundary (at least 3), then press "Finish this port".'
+    : `${n} point${n === 1 ? '' : 's'} placed - click more, or press "Finish this port" when the outline looks right.`;
+}
+
+function updatePhotoUI() {
+  document.getElementById('photoStepHint').textContent = photoCurrentInstruction();
+  const portsHint = document.getElementById('photoPortsHint');
+  if (photoCompletedPorts.length > 0) {
+    const avg = photoAveraged();
+    const n = photoCompletedPorts.length;
+    const suggestedN = n + photoOtherPortsCount;
+    portsHint.textContent =
+      `${n} port${n === 1 ? '' : 's'} traced — average r.port ≈ ${fmtLen(avg.rPort, 'mm')}mm, ` +
+      `d.port ≈ ${fmtLen(avg.dPort, 'mm')}mm, w.port ≈ ${fmtLen(avg.wPort, 'mm')}mm — suggested N.port = ${suggestedN}.`;
+  } else {
+    portsHint.textContent = '';
+  }
+  document.getElementById('photoFinishPortBtn').disabled = photoStep !== 'trace' || photoCurrentTrace.length < 3;
+  document.getElementById('photoApplyBtn').disabled = photoCompletedPorts.length === 0;
+  document.getElementById('photoUndoBtn').disabled =
+    !photoImg || (photoStep === 'calibrate' && photoCalibPts.length === 0);
+  document.getElementById('photoResetBtn').disabled = !photoImg;
+}
+
+function drawPhotoCanvas() {
+  if (!photoImg) return;
+  const cv = document.getElementById('photoCanvas');
+  const { ctx, w, h } = setupCanvas(cv);
+  ctx.clearRect(0, 0, w, h);
+
+  // "contain" fit: scale the image into w x h, preserving aspect ratio, centered.
+  const scale = Math.min(w / photoImg.naturalWidth, h / photoImg.naturalHeight);
+  const dw = photoImg.naturalWidth * scale,
+    dh = photoImg.naturalHeight * scale;
+  photoDrawRect = { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
+  ctx.drawImage(photoImg, photoDrawRect.x, photoDrawRect.y, dw, dh);
+
+  // calibration points + the fitted outer-edge circle
+  photoCalibPts.forEach((pt) => {
+    const p = photoImageToCanvasPt(pt);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
+    ctx.fillStyle = '#eab308';
+    ctx.fill();
+  });
+  if (photoCenter && photoRadiusImgPx) {
+    const c = photoImageToCanvasPt(photoCenter);
+    const rPx = photoRadiusImgPx * (photoDrawRect.w / photoImg.naturalWidth);
+    ctx.strokeStyle = '#eab308';
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, rPx, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = '#eab308';
+    ctx.fill();
+  }
+
+  // completed ports: muted closed outlines, so you can see what's already been captured
+  photoCompletedPorts.forEach(({ points }) => {
+    const cvPts = points.map(photoImageToCanvasPt);
+    ctx.beginPath();
+    cvPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(143,168,224,0.2)';
+    ctx.fill();
+    ctx.strokeStyle = '#8fa8e0';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  // the port currently being traced: an open polyline (not yet closed) with its own points
+  if (photoCurrentTrace.length > 0) {
+    const cvPts = photoCurrentTrace.map(photoImageToCanvasPt);
+    ctx.strokeStyle = '#2f6fed';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    cvPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.fillStyle = '#2f6fed';
+    cvPts.forEach((p) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
+      ctx.fill();
+    });
+  }
+}
+
+function photoCanvasClick(e) {
+  if (!photoImg || !photoDrawRect) return;
+  const cv = document.getElementById('photoCanvas');
+  const rect = cv.getBoundingClientRect();
+  const cx = e.clientX - rect.left,
+    cy = e.clientY - rect.top;
+  // ignore clicks outside the drawn image (the letterboxed margin, if any)
+  if (
+    cx < photoDrawRect.x ||
+    cx > photoDrawRect.x + photoDrawRect.w ||
+    cy < photoDrawRect.y ||
+    cy > photoDrawRect.y + photoDrawRect.h
+  ) {
+    return;
+  }
+  const raw = photoCanvasToImagePt(cx, cy);
+  const pt = photoSnapPoint(raw.x, raw.y);
+
+  if (photoStep === 'calibrate') {
+    photoCalibPts.push(pt);
+    if (photoCalibPts.length === 3) {
+      const fit = circleFrom3Points(photoCalibPts[0], photoCalibPts[1], photoCalibPts[2]);
+      if (!fit) {
+        photoCalibPts.pop();
+        updatePhotoUI();
+        document.getElementById('photoStepHint').textContent =
+          'Those 3 points are too close to a straight line to fit a circle - click a point further around the edge.';
+        drawPhotoCanvas();
+        return;
+      }
+      const dValveMM = getFieldMM('dValve');
+      if (!(dValveMM > 0)) {
+        photoCalibPts = [];
+        updatePhotoUI();
+        document.getElementById('photoStepHint').textContent = 'Enter D.valve (above) before calibrating.';
+        drawPhotoCanvas();
+        return;
+      }
+      photoCenter = fit.center;
+      photoRadiusImgPx = fit.r;
+      photoMmPerPx = dValveMM / (2 * fit.r);
+      photoStep = 'trace';
+    }
+  } else if (photoStep === 'trace') {
+    photoCurrentTrace.push(pt);
+  }
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+function photoFinishPort() {
+  if (photoCurrentTrace.length < 3) return;
+  const result = computePortGeometryFromOutline(photoCenter, photoMmPerPx, photoCurrentTrace);
+  photoCompletedPorts.push({ points: photoCurrentTrace.slice(), result });
+  photoCurrentTrace = [];
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+function photoUndo() {
+  if (photoStep === 'calibrate') {
+    photoCalibPts.pop();
+  } else if (photoStep === 'trace') {
+    if (photoCurrentTrace.length > 0) {
+      photoCurrentTrace.pop();
+    } else if (photoCompletedPorts.length > 0) {
+      photoCompletedPorts.pop();
+    } else {
+      photoStep = 'calibrate';
+      photoCenter = null;
+      photoRadiusImgPx = null;
+      photoMmPerPx = null;
+      photoCalibPts.pop();
+    }
+  }
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+function photoReset() {
+  photoStep = 'calibrate';
+  photoCalibPts = [];
+  photoCenter = null;
+  photoRadiusImgPx = null;
+  photoMmPerPx = null;
+  photoCurrentTrace = [];
+  photoCompletedPorts = [];
+  photoOtherPortsCount = 0;
+  const otherEl = document.getElementById('photoOtherPorts');
+  if (otherEl) otherEl.value = 0;
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+function applyPhotoResult() {
+  const avg = photoAveraged();
+  if (!avg) return;
+  setFieldValueAndUnit('rPort', fmtLen(avg.rPort, 'mm'), 'mm');
+  setFieldValueAndUnit('dPort', fmtLen(avg.dPort, 'mm'), 'mm');
+  setFieldValueAndUnit('wPort', fmtLen(avg.wPort, 'mm'), 'mm');
+  ['rPort', 'dPort', 'wPort'].forEach((id) => {
+    document.getElementById(id).dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  if (document.getElementById('photoApplyNPort').checked) {
+    document.getElementById('nPort').value = photoCompletedPorts.length + photoOtherPortsCount;
+    document.getElementById('nPort').dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+function loadPhotoFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    photoImg = img;
+    // A separate, never-displayed canvas holding the image at FULL resolution, so edge
+    // snapping always reads real detail even when the on-screen canvas has to shrink a
+    // large photo to fit.
+    const off = document.createElement('canvas');
+    off.width = img.naturalWidth;
+    off.height = img.naturalHeight;
+    photoOffscreenCtx = off.getContext('2d', { willReadFrequently: true });
+    photoOffscreenCtx.drawImage(img, 0, 0);
+    photoReset();
+    document.getElementById('photoCanvas').style.display = 'block';
+    drawPhotoCanvas();
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    document.getElementById('photoStepHint').textContent = 'Could not load that image file.';
+  };
+  img.src = url;
+  evt.target.value = '';
 }
 
 function clearPresetSelection() {
@@ -437,6 +788,22 @@ let curProduct = 'fox38x2',
 function currentValve() {
   return PRODUCTS[curProduct] && PRODUCTS[curProduct].valves[curValveKey];
 }
+// Every product stores its shim/geometry dimensions canonically in inches (see
+// catalog.json), same as FOX's own drawings. A metric-sourced product (e.g. RockShox,
+// units:'mm') just carries a display hint so the catalog/tune UI shows native mm instead
+// of showing a metric shim as an odd inch decimal - the underlying physics is unaffected.
+function prodDispUnit() {
+  return PRODUCTS[curProduct] && PRODUCTS[curProduct].units === 'mm' ? 'mm' : 'in';
+}
+// FOX's own catalog rounds .0031in/.0032in drawing noise to a single canonical value
+// (see canonThk) - that snap is meaningless, and lightly lossy, for a metric-sourced
+// catalog whose inch values are already exact conversions from mm.
+function catalogSnapsThk() {
+  return prodDispUnit() !== 'mm';
+}
+function toDispLen(valIn, unit) {
+  return unit === 'mm' ? convLen(valIn, 'in', 'mm') : valIn;
+}
 
 function populateProductSel() {
   const sel = document.getElementById('prodSel');
@@ -454,6 +821,7 @@ function populateValveSel() {
   const sel = document.getElementById('valveSel');
   if (!sel) return;
   sel.innerHTML = '';
+  if (!PRODUCTS[curProduct]) return; // catalog failed to load - leave the select empty
   const valves = PRODUCTS[curProduct].valves;
   for (const vk in valves) {
     const o = document.createElement('option');
@@ -479,6 +847,7 @@ function populateTuneSel() {
 }
 function onProductChange() {
   curProduct = document.getElementById('prodSel').value;
+  if (!PRODUCTS[curProduct]) return;
   curValveKey = Object.keys(PRODUCTS[curProduct].valves)[0];
   populateValveSel();
   applyValveContext();
@@ -502,24 +871,29 @@ function renderCatalog() {
   const cc = document.getElementById('catalogCount');
   if (cc) cc.textContent = `${list.length} parts`;
   const note = document.getElementById('catalogNote');
+  const du = prodDispUnit();
   if (note)
-    note.innerHTML = `ID ${v.shimID}in · OD ${v.odMin}–${v.odMax}in · height target ±${(v.heightTolIn * IN).toFixed(2)}mm. Click a shim to add it to the stack:`;
+    note.innerHTML = `ID ${fmtLen(toDispLen(v.shimID, du), du)}${du} · OD ${fmtLen(toDispLen(v.odMin, du), du)}–${fmtLen(toDispLen(v.odMax, du), du)}${du} · height target ±${(v.heightTolIn * IN).toFixed(2)}mm. Click a shim to add it to the stack:`;
   const chips = document.getElementById('catalogChips');
   if (chips) {
     chips.innerHTML = list
-      .map(
-        (s) =>
-          `<button class="small catchip" data-od="${s.od}" data-thk="${s.thk}" title="Add one ${s.od.toFixed(3)}in OD × ${s.thk.toFixed(4)}in shim">${s.od.toFixed(3)}<span style="opacity:.6">×</span>${s.thk.toFixed(4)}</button>`,
-      )
+      .map((s) => {
+        const odD = fmtLen(toDispLen(s.od, du), du);
+        const thkD = fmtLen(toDispLen(s.thk, du), du);
+        const isDelta = s.type === 'deltaT';
+        return `<button class="small catchip" data-od="${s.od}" data-thk="${s.thk}" data-type="${s.type || 'round'}" title="Add one ${odD}${du} OD${isDelta ? ' (delta/triangle)' : ''} × ${thkD}${du} shim">${odD}${isDelta ? '<b>T</b>' : ''}<span style="opacity:.6">×</span>${thkD}</button>`;
+      })
       .join('');
   }
 }
 // Add a catalog shim to the current stack, inserted in descending-OD order so the widest
 // shim always sits at the valve face (keeps the stack solver-valid — a floating widest
 // shim has nothing bonded spanning the outer radii). Reorder afterward with the row ↑↓.
-function addCatalogShim(od, thk) {
+// od/thk arrive in canonical inches; displayed in the current product's native unit.
+function addCatalogShim(od, thk, type) {
   const tbody = document.getElementById('shimBody');
-  addShimRow(1, od, thk, 'in', null, 0); // appends at end (canonical inch part)
+  const du = prodDispUnit();
+  addShimRow(1, fmtLen(toDispLen(od, du), du), fmtLen(toDispLen(thk, du), du), du, null, 0, type || 'round');
   const newTr = tbody.lastElementChild;
   const odMM = od * IN;
   let ref = null;
@@ -544,7 +918,10 @@ let stockTuneInfo = null; // {kit,label,note}
 let loadingStock = false; // guard so building the stock stack doesn't flag itself custom
 function rowsSig(rows) {
   return rows
-    .map((r) => `${r.count}:${r.diam.toFixed(3)}:${r.thickness.toFixed(4)}:${(r.float || 0).toFixed(3)}`)
+    .map(
+      (r) =>
+        `${r.count}:${r.diam.toFixed(3)}:${r.thickness.toFixed(4)}:${(r.float || 0).toFixed(3)}:${r.type || 'round'}`,
+    )
     .join('|');
 }
 function setTuneSelCustom(isCustom) {
@@ -564,6 +941,7 @@ function setTuneSelCustom(isCustom) {
   }
 }
 function refreshCustomState() {
+  updateStackHeightDisplay();
   if (loadingStock || stockRowsSig === null) return;
   const isCustom = rowsSig(readRows()) !== stockRowsSig;
   setTuneSelCustom(isCustom);
@@ -585,11 +963,24 @@ function onTuneChange() {
   if (!t) return;
   loadingStock = true;
   setTuneSelCustom(false);
+  const du = prodDispUnit();
+  const snap = catalogSnapsThk();
+  const thkIn = (r) => (snap ? canonThk(r[2]) : r[2]);
   document.getElementById('shimBody').innerHTML = '';
-  setFieldValueAndUnit('stackID', 0.252, 'in');
-  t.rows.forEach((r) => addShimRow(r[0], r[1], canonThk(r[2]), 'in', null, 0));
+  setFieldValueAndUnit('stackID', fmtLen(toDispLen(v.shimID, du), du), du);
+  t.rows.forEach((r) =>
+    addShimRow(
+      r[0],
+      fmtLen(toDispLen(r[1], du), du),
+      fmtLen(toDispLen(thkIn(r), du), du),
+      du,
+      null,
+      0,
+      r[3] || 'round',
+    ),
+  );
   document.getElementById('valveType').value = v.valveType;
-  const total = t.rows.reduce((s, r) => s + r[0] * canonThk(r[2]), 0);
+  const total = t.rows.reduce((s, r) => s + r[0] * thkIn(r), 0);
   const heightBit =
     t.heightIn != null
       ? `drawing stack height ${t.heightIn.toFixed(3)}in (tune-shim total ${total.toFixed(4)}in)`
@@ -600,11 +991,12 @@ function onTuneChange() {
   document.getElementById('presetNote').innerHTML = noteHtml;
   showWarn(null);
   pendingStockCapture = true; // capture this stock tune's curve as the target reference
-  stockHeightMM = t.rows.reduce((s, r) => s + r[0] * canonThk(r[2]), 0) * IN; // reference height for optimizer
+  stockHeightMM = total * IN; // reference height for optimizer
   // baseline for "custom" detection
   stockTuneInfo = { kit: t.kit, label: `${v.label} ${t.label}`, note: noteHtml, key: tk };
   stockRowsSig = rowsSig(readRows());
   loadingStock = false;
+  updateStackHeightDisplay();
   scheduleLiveCalc();
 }
 
@@ -616,22 +1008,18 @@ function geomKeyFor() {
 function loadValveGeom(v) {
   const saved = (lsGet(GEOM_KEY) || {})[geomKeyFor()];
   const g = saved || v.geom;
-  setFieldValueAndUnit('stackID', g.stackID_in != null ? g.stackID_in : v.shimID, 'in');
-  setFieldValueAndUnit(
-    'clampDia',
-    g.clampDia_in != null ? g.clampDia_in : g.stackID_in != null ? g.stackID_in : v.shimID,
-    'in',
-  );
+  const du = prodDispUnit();
+  const stackIDIn = g.stackID_in != null ? g.stackID_in : v.shimID;
+  const clampDiaIn = g.clampDia_in != null ? g.clampDia_in : stackIDIn;
+  setFieldValueAndUnit('stackID', fmtLen(toDispLen(stackIDIn, du), du), du);
+  setFieldValueAndUnit('clampDia', fmtLen(toDispLen(clampDiaIn, du), du), du);
   ['dRod', 'dValve', 'rPort', 'dPort', 'wPort', 'dThrt'].forEach((id) =>
     setFieldValueAndUnit(id, fmtLen(g[id], 'mm'), 'mm'),
   );
   document.getElementById('nPort').value = g.nPort;
   document.getElementById('nThrt').value = g.nThrt;
   const hint = document.getElementById('geomSaveHint');
-  if (hint)
-    hint.textContent = saved
-      ? 'using your saved geometry for this valve'
-      : 'using approximate default geometry — enter real values and save';
+  if (hint) hint.textContent = saved ? 'using your saved geometry' : 'using approximate defaults';
   drawPortFaceDiagram();
 }
 function saveValveGeom() {
@@ -717,8 +1105,10 @@ function readRows() {
     const thickness = convLen(parseFloat(tr.querySelector('.cThick').value) || 0, unit, 'mm');
     const floatEl = tr.querySelector('.cFloat');
     const float = Math.max(0, convLen(parseFloat(floatEl ? floatEl.value : 0) || 0, unit, 'mm'));
+    const typeEl = tr.querySelector('.rowType');
+    const type = typeEl ? typeEl.value : 'round';
     const special = tr.className || null;
-    if (count > 0 && diam > 0 && thickness > 0) rows.push({ count, diam, thickness, float, special });
+    if (count > 0 && diam > 0 && thickness > 0) rows.push({ count, diam, thickness, float, special, type });
   });
   return rows;
 }
@@ -808,6 +1198,10 @@ function runCalc(opts) {
   currentStack = stack;
   currentGeom = geom;
   currentRows = rows;
+  // Lock the stack preview's Y-axis to this calc's worst case now, once - see
+  // stackYMaxLockedMM's declaration and drawStackCanvas() for why.
+  stackYMaxLockedMM = computeStackYMaxMM(Fmax);
+  lsSet(LIVE_CONFIG_KEY, { geom, mech, fluid, valveType, fMax: Fmax, uMax, nPts: String(nPts), rows });
 
   const results = [];
   for (let i = 0; i < nPts; i++) {
@@ -915,11 +1309,10 @@ function onLiveModeChange() {
 // up around the pivot's edge, gets contacted, and only then starts to move: correct
 // order, no overlap, no tearing at cavity edges. This mirrors the solver's own
 // engagement rule, so what you see matches what's computed.
-function drawStackAtSlider() {
-  if (!currentStack || !currentRows) return;
-  const Fdisp = parseFloat(document.getElementById('forceSlider').value) || 0;
-  document.getElementById('sliderVal').textContent = fmtForce(Fdisp, resultUnit);
-  const Fbase = convForce(Fdisp, resultUnit, 'mm');
+// Builds the shim-band geometry (one polygon per row) at a given force and display unit -
+// shared by drawStackAtSlider() (the current slider force) and computeStackYMaxMM() (the
+// calc's worst-case Fmax state, used to lock the preview's Y-axis scale - see runCalc()).
+function buildBandsAtForce(Fbase, unit) {
   const profile = currentStack.profileAt(Fbase); // {rs, ys} in mm
   const aMM = (currentGeom.clampDia && currentGeom.clampDia > 0 ? currentGeom.clampDia : currentGeom.stackID) / 2;
   const shaftMM = (currentGeom.stackID || 0) / 2;
@@ -930,6 +1323,8 @@ function drawStackAtSlider() {
 
   let base = 0; // cumulative shim material below
   let cumFloat = 0; // cumulative explicit float gaps below (incl. this row's own gap)
+  let clampMaterialH = 0; // thickness of rows that never reach past the clamp line at all —
+  // real material, but with nothing to draw as its own band (see clampH below)
   const bands = [];
   currentRows.forEach((row, idx) => {
     cumFloat += Math.max(0, row.float || 0);
@@ -937,7 +1332,10 @@ function drawStackAtSlider() {
     const yRest = base + cumFloat;
     base += hRow;
     const rOuter = row.diam / 2;
-    if (rOuter <= aMM) return;
+    if (rOuter <= aMM) {
+      clampMaterialH += hRow;
+      return;
+    }
     const pal =
       row.special === 'clamp-row' || row.special === 'nut-row' ? CLAMP_COLOR : SHIM_PALETTE[idx % SHIM_PALETTE.length];
     const engagedNow = Fbase >= (engageF[idx] !== undefined ? engageF[idx] : -Infinity);
@@ -949,9 +1347,9 @@ function drawStackAtSlider() {
     // the bending model treats as immovable) but it's still real shim material, so it's
     // drawn flat out to the clamp line rather than leaving a gap at the shaft.
     if (shaftMM < aMM) {
-      rs.push(convLen(shaftMM, 'mm', resultUnit));
-      yB.push(convLen(yRest, 'mm', resultUnit));
-      yT.push(convLen(yRest + hRow, 'mm', resultUnit));
+      rs.push(convLen(shaftMM, 'mm', unit));
+      yB.push(convLen(yRest, 'mm', unit));
+      yT.push(convLen(yRest + hRow, 'mm', unit));
     }
     let runMax = 0; // contact offset carried outward — a plate can't dip back down mid-span
     for (let s = 0; s <= N; s++) {
@@ -960,9 +1358,9 @@ function drawStackAtSlider() {
         const push = liftAt(r) - stackGapAt(currentRows, idx, r);
         if (push > runMax) runMax = push;
       }
-      rs.push(convLen(r, 'mm', resultUnit));
-      yB.push(convLen(yRest + runMax, 'mm', resultUnit));
-      yT.push(convLen(yRest + runMax + hRow, 'mm', resultUnit));
+      rs.push(convLen(r, 'mm', unit));
+      yB.push(convLen(yRest + runMax, 'mm', unit));
+      yT.push(convLen(yRest + runMax + hRow, 'mm', unit));
     }
     bands.push({
       rs,
@@ -972,37 +1370,96 @@ function drawStackAtSlider() {
       stroke: pal.stroke,
       dashed: row.float > 0 && !engagedNow,
       faded: row.float > 0 && !engagedNow,
+      delta: row.type === 'deltaT',
     });
   });
 
-  const rLoadDisp = convLen(currentStack.rLoad, 'mm', resultUnit);
-  const clampDisp = convLen(aMM, 'mm', resultUnit);
-  // The shaft/post the shims are actually threaded onto is sized by the shim ID (the
-  // hole in the shims themselves), not D.rod — a separate, unrelated dimension further
-  // up the damper at the seal. stackID is meant to stay <= clampDia (per the geometry
-  // panel's own hint text), so this normally doesn't overlap the clamp-diameter line.
-  const shaftDisp = convLen(shaftMM, 'mm', resultUnit);
-  drawStackCanvas(bands, rLoadDisp, clampDisp, shaftDisp);
+  return {
+    bands,
+    rLoadDisp: convLen(currentStack.rLoad, 'mm', unit),
+    clampDisp: convLen(aMM, 'mm', unit),
+    // The shaft/post the shims are actually threaded onto is sized by the shim ID (the
+    // hole in the shims themselves), not D.rod — a separate, unrelated dimension further
+    // up the damper at the seal. stackID is meant to stay <= clampDia (per the geometry
+    // panel's own hint text), so this normally doesn't overlap the clamp-diameter line.
+    shaftDisp: convLen(shaftMM, 'mm', unit),
+    clampMaterialDisp: convLen(clampMaterialH, 'mm', unit),
+  };
 }
 
-function drawStackCanvas(bands, rLoad, clampR, shaftR) {
+// Derives the stack preview's locked Y-axis scale from the calc's worst case (its max
+// configured force) so it can be computed once per calc (see runCalc()) and reused for
+// every slider position, instead of being recomputed from whatever force the slider is
+// currently at - see drawStackCanvas() for why that rescaling was the actual bug.
+function computeStackYMaxMM(FmaxMM) {
+  const { bands, rLoadDisp, clampMaterialDisp } = buildBandsAtForce(FmaxMM, 'mm');
+  let yMax = 1e-6;
+  bands.forEach((b) => {
+    for (let i = 0; i < b.yT.length; i++) {
+      if (b.rs[i] <= rLoadDisp) yMax = Math.max(yMax, b.yT[i]);
+    }
+  });
+  const tallestShimH = bands.reduce((m, b) => Math.max(m, b.yT[0] - b.yB[0]), 1e-6);
+  const clampH = clampMaterialDisp > 0 ? clampMaterialDisp : tallestShimH * 1.5;
+  yMax = Math.max(yMax, yMax + clampH);
+  return yMax * 1.18;
+}
+
+function drawStackAtSlider() {
+  if (!currentStack || !currentRows) return;
+  const Fdisp = parseFloat(document.getElementById('forceSlider').value) || 0;
+  document.getElementById('sliderVal').textContent = fmtForce(Fdisp, resultUnit);
+  const Fbase = convForce(Fdisp, resultUnit, 'mm');
+  const { bands, rLoadDisp, clampDisp, shaftDisp, clampMaterialDisp } = buildBandsAtForce(Fbase, resultUnit);
+  const yMaxLocked = convLen(stackYMaxLockedMM, 'mm', resultUnit);
+  drawStackCanvas(bands, rLoadDisp, clampDisp, shaftDisp, clampMaterialDisp, yMaxLocked);
+}
+
+function drawStackCanvas(bands, rLoad, clampR, shaftR, clampMaterialH, yMaxLocked) {
   const cv = document.getElementById('stackCanvas');
   const { ctx, w, h } = setupCanvas(cv);
-  const pad = { l: 44, r: 16, t: 14, b: 26 };
-  let xMax = Math.max(rLoad, clampR || 0),
-    yMax = 1e-6;
+  // Extra left/top padding vs. the force chart's default (44px/14px) - the dual-unit tick
+  // labels here ("2.50mm (0.098in)") are much longer than the shared default's bare numbers.
+  const pad = { l: 88, r: 46, t: 20, b: 26 };
+  let xMax = Math.max(rLoad, clampR || 0);
   bands.forEach((b) => {
     xMax = Math.max(xMax, b.rs[b.rs.length - 1]);
-    for (let i = 0; i < b.yT.length; i++) yMax = Math.max(yMax, b.yT[i]);
   });
-  // Where the real shim stack tops out — the clamp shim is drawn stacked directly above
-  // this, like one more (thicker, black) shim on top of the sequence, not off to the side.
-  const stackTopY = yMax;
+  // Where THIS force's shim stack currently tops out — the clamp shim is drawn stacked
+  // directly above this, like one more (thicker, black) shim on top of the sequence, not
+  // off to the side. Grows with force, unlike yMax below - that's the whole fix: this
+  // (positioning) stays dynamic, only the axis scale is locked.
+  let stackTopY = 1e-6;
+  bands.forEach((b) => {
+    // Only the physically-loaded span (out to the port edge) counts. Beyond it, the model
+    // has no applied moment, so it holds whatever rotation it had at the port and projects
+    // a straight line outward — a small rotation carried over a long unsupported rim
+    // amplifies into a tip height many times the real, loaded deflection. The tip still
+    // draws, just clipped to the plot area below instead of pulling the clamp up with it.
+    for (let i = 0; i < b.yT.length; i++) {
+      if (b.rs[i] <= rLoad) stackTopY = Math.max(stackTopY, b.yT[i]);
+    }
+  });
+  // Rows entirely inside the clamp radius (e.g. a clamp/nut row narrower than D.clamp)
+  // never get their own band, but they're still real material - fold their thickness into
+  // the clamp block's height instead of the generic fallback so the diagram doesn't lose it.
   const tallestShimH = bands.reduce((m, b) => Math.max(m, b.yT[0] - b.yB[0]), 1e-6);
-  const clampH = tallestShimH * 1.5;
-  yMax = Math.max(yMax, stackTopY + clampH);
+  const clampH = clampMaterialH > 0 ? clampMaterialH : tallestShimH * 1.5;
   xMax *= 1.03;
-  yMax *= 1.18;
+  // Locked to the calc's worst-case (max configured force) state - computed once in
+  // runCalc() via computeStackYMaxMM(), not recomputed here from the current bands. If it
+  // rescaled with every slider move, the clamp block's fixed real thickness would map to
+  // fewer and fewer pixels as force (and yMax) grew, making it visibly shrink even though
+  // nothing about it actually changed - that illusion was the reported bug.
+  const yMax = yMaxLocked;
+  // Tick labels here always show both units - primary (whichever resultUnit currently is)
+  // at a fixed 2dp(mm)/3dp(in), with the other unit's equivalent in brackets at its own
+  // fixed decimal count - instead of the shared default rule (up to 4dp, no unit shown),
+  // which was needlessly precise for these frequently-sub-1mm cross-section values.
+  const fmtStackTick = (val) =>
+    resultUnit === 'mm'
+      ? `${val.toFixed(2)}mm (${convLen(val, 'mm', 'in').toFixed(3)}in)`
+      : `${val.toFixed(3)}in (${convLen(val, 'in', 'mm').toFixed(2)}mm)`;
   drawAxes(
     ctx,
     w,
@@ -1012,6 +1469,10 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
     yMax,
     `radius (${resultUnit === 'mm' ? 'mm' : 'in'})`,
     `cross-section (${resultUnit === 'mm' ? 'mm' : 'in'})`,
+    undefined,
+    fmtStackTick,
+    3, // fewer ticks than the default 5 - these dual-unit labels need more room each
+    10, // slightly smaller than the default 11px tick font, same reason
   );
   const X = (r) => pad.l + (w - pad.l - pad.r) * (r / xMax);
   const Y = (y) => h - pad.b - (h - pad.t - pad.b) * (y / yMax);
@@ -1036,6 +1497,13 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
     ctx.fillText('clamp', X(shaftR) + 4, Y(stackTopY + clampH / 2) + 4);
   }
 
+  // Now that the axis no longer stretches to fit it, an unloaded overhang tip can run past
+  // the top of the plot - clip to the plot rectangle so it crops there instead of drawing
+  // over the axis title/labels above.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
+  ctx.clip();
   bands.forEach((b) => {
     // one smooth closed polygon per shim: along the bottom edge, back along the top edge
     ctx.beginPath();
@@ -1056,7 +1524,38 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
     if (b.dashed) ctx.setLineDash([4, 3]);
     ctx.stroke();
     ctx.setLineDash([]);
+    // delta/triangle shims: hatch the outer half, where only the three lobes carry load
+    // (see shimScaleAt in physics.js) — the inner half is still a full disc, unmarked.
+    if (b.delta) {
+      const n = b.rs.length,
+        half = Math.floor(n / 2);
+      ctx.save();
+      ctx.beginPath();
+      for (let i = half; i < n; i++) {
+        const x = X(b.rs[i]),
+          y = Y(b.yB[i]);
+        if (i === half) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      for (let i = n - 1; i >= half; i--) ctx.lineTo(X(b.rs[i]), Y(b.yT[i]));
+      ctx.closePath();
+      ctx.clip();
+      ctx.strokeStyle = b.stroke;
+      ctx.lineWidth = 0.7;
+      ctx.globalAlpha = 0.75;
+      const x0 = X(b.rs[half]),
+        x1 = X(b.rs[n - 1]);
+      for (let x = x0 - 12; x <= x1 + 12; x += 4) {
+        ctx.beginPath();
+        ctx.moveTo(x, Y(0));
+        ctx.lineTo(x + 12, Y(0) - 14);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
   });
+  ctx.restore();
 
   if (clampR > 0) {
     // yellow, not black — a black line would vanish against the black clamp shim above
@@ -1067,19 +1566,22 @@ function drawStackCanvas(bands, rLoad, clampR, shaftR) {
     ctx.lineTo(X(clampR), h - pad.b);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#8a6d1a';
+    // the label itself needs more contrast than the line — a darker gold reads fine on
+    // the light theme's white canvas, but is nearly invisible on the dark theme's navy one
+    ctx.fillStyle = isDarkTheme() ? '#eab308' : '#8a6d1a';
     ctx.font = '11px sans-serif';
     ctx.fillText('clamp dia', X(clampR) + 4, h - pad.b - 4);
   }
 
-  ctx.strokeStyle = '#c0392b';
+  const warnColor = themeColor('--warn', '#c0392b');
+  ctx.strokeStyle = warnColor;
   ctx.setLineDash([4, 3]);
   ctx.beginPath();
   ctx.moveTo(X(rLoad), pad.t);
   ctx.lineTo(X(rLoad), h - pad.b);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = '#c0392b';
+  ctx.fillStyle = warnColor;
   ctx.font = '11px sans-serif';
   ctx.fillText('port edge', X(rLoad) + 4, pad.t + 12);
 }
@@ -1276,6 +1778,15 @@ function drawForceCurve() {
     yMax = Math.max(1, ...allYForAuto) * 1.15;
   }
 
+  // Shaft velocity always reads in m/s (2dp) with in/s (3dp) in brackets on this chart,
+  // independent of the Metric/Imperial resultUnit toggle (which still governs the Y axis -
+  // force - and everything else). `val` arrives in whatever unit resultUnit currently is,
+  // since that's still what the chart's own X-axis scale (xMax above) is plotted in.
+  const fmtForceChartTick = (val, axis) => {
+    if (axis !== 'x') return defaultTickFmt(val);
+    const mm = convVel(val, resultUnit, 'mm');
+    return `${(mm / 1000).toFixed(2)}m/s (${convVel(mm, 'mm', 'in').toFixed(3)}in/s)`;
+  };
   drawAxes(
     ctx,
     w,
@@ -1283,9 +1794,12 @@ function drawForceCurve() {
     pad,
     xMax,
     yMax,
-    `shaft velocity (${resultUnit === 'mm' ? 'mm/s' : 'in/s'})`,
+    'shaft velocity',
     `damping force (${resultUnit === 'mm' ? 'N' : 'lbf'})`,
     yMin,
+    fmtForceChartTick,
+    3, // fewer ticks than the default 5 - the m/s(in/s) X labels need more room each
+    10, // slightly smaller than the default 11px tick font, same reason
   );
   const X = (u) => pad.l + (w - pad.l - pad.r) * (u / xMax);
   const Y = (F) => h - pad.b - (h - pad.t - pad.b) * ((F - yMin) / (yMax - yMin));
@@ -1297,7 +1811,7 @@ function drawForceCurve() {
   ctx.clip();
 
   if (stockPts.length && !stockHidden) {
-    ctx.strokeStyle = '#9aa3b0';
+    ctx.strokeStyle = themeColor('--muted', '#9aa3b0');
     ctx.lineWidth = 1.4;
     ctx.setLineDash([]);
     ctx.beginPath();
@@ -1370,8 +1884,9 @@ function drawForceCurve() {
   ctx.font = '11px sans-serif';
   let ly = pad.t + 12;
   legendHits = [];
+  const inkColor = themeColor('--ink', '#1c2430');
   const legend = curves.map((c) => ({ label: c.label, color: c.color, dash: c.dash }));
-  if (stockPts.length) legend.unshift({ label: 'stock (reference)', color: '#9aa3b0', dash: [] });
+  if (stockPts.length) legend.unshift({ label: 'stock (reference)', color: themeColor('--muted', '#9aa3b0'), dash: [] });
   if (tgtPts.length) legend.push({ label: 'target', color: '#c026d3', dash: [6, 4], noHide: true });
   legend.forEach((c) => {
     const hidden = hiddenCurves.has(c.label);
@@ -1384,11 +1899,11 @@ function drawForceCurve() {
     ctx.lineTo(pad.l + 30, ly - 3);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#1c2430';
+    ctx.fillStyle = inkColor;
     const tw = ctx.measureText(c.label).width;
     ctx.fillText(c.label, pad.l + 36, ly);
     if (hidden) {
-      ctx.strokeStyle = '#1c2430';
+      ctx.strokeStyle = inkColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(pad.l + 36, ly - 3);
@@ -1554,6 +2069,39 @@ function currentStackHeightMM() {
   return readRows().reduce((s, r) => s + r.count * r.thickness, 0);
 }
 
+// Live "how does this compare to what I loaded" readout shown just above the shim table.
+// Always shows the current total stack thickness; once a stock tune is loaded (the same
+// stockRowsSig/stockTuneInfo tracking refreshCustomState() uses for the "Custom (modified)"
+// label), it also shows the live delta against that tune's original height, scored against
+// the same soft height-tolerance band the optimizer uses (never under, small over allowance).
+function updateStackHeightDisplay() {
+  const valEl = document.getElementById('stackHeightVal');
+  const deltaEl = document.getElementById('stackHeightDelta');
+  if (!valEl || !deltaEl) return;
+  const totalMM = currentStackHeightMM();
+  valEl.textContent = `${totalMM.toFixed(3)}mm (${convLen(totalMM, 'mm', 'in').toFixed(4)}in)`;
+  if (stockRowsSig === null || !stockTuneInfo) {
+    deltaEl.textContent = '';
+    return;
+  }
+  const v = currentValve();
+  const tolOver = ((v && v.heightTolIn) || 0.05 / IN) * IN;
+  const delta = totalMM - stockHeightMM;
+  let flag, color;
+  if (delta < -1e-4) {
+    flag = '▼ under stock';
+    color = 'var(--warn)';
+  } else if (delta > tolOver + 1e-4) {
+    flag = '▲ over tolerance';
+    color = '#e08e0b';
+  } else {
+    flag = '✓ in-band';
+    color = 'var(--accent2)';
+  }
+  const sign = delta >= 0 ? '+' : '−';
+  deltaEl.innerHTML = ` — vs stock <b>${stockTuneInfo.label}</b> (${stockHeightMM.toFixed(3)}mm reference, allowed up to +${tolOver.toFixed(2)}mm, never under): <span style="color:${color}">${sign}${Math.abs(delta).toFixed(3)}mm</span> ${flag}`;
+}
+
 function optimizeToTarget() {
   const status = document.getElementById('optStatus');
   if (!targetOn || !targetHandles.length) {
@@ -1566,7 +2114,7 @@ function optimizeToTarget() {
     status.textContent = 'No catalog for this valve — pick a Product/Valve first.';
     return;
   }
-  status.textContent = 'searching real FOX shims…';
+  status.textContent = 'searching real shims…';
   document.getElementById('optBtn').disabled = true;
   // let the status paint before the (blocking) search
   setTimeout(() => {
@@ -1592,7 +2140,13 @@ function runOptimize(v, catalog) {
   const Href = stockHeightMM > 0 ? stockHeightMM : currentStackHeightMM();
   const tolOver = (v.heightTolIn || 0.05 / IN) * IN; // mm the stack may exceed Href by
   const ODS = [...new Set(catalog.map((s) => s.od))].sort((a, b) => a - b);
-  const thksFor = (od) => catalog.filter((s) => Math.abs(s.od - od) < 1e-9).map((s) => s.thk);
+  // Round and delta (triangle) shims at the same OD are different physical parts - see
+  // shimScaleAt() in physics.js - so thickness lookups and part identity are keyed on
+  // type too, not just OD, or the search would silently treat a 23mm delta as if it were
+  // a full round disc.
+  const thksFor = (od, type) =>
+    catalog.filter((s) => Math.abs(s.od - od) < 1e-9 && (s.type || 'round') === (type || 'round')).map((s) => s.thk);
+  const variantsAt = (od) => catalog.filter((s) => Math.abs(s.od - od) < 1e-9);
   const nearest = (arr, x) => arr.reduce((b, t) => (Math.abs(t - x) < Math.abs(b - x) ? t : b), arr[0]);
   // The face shim covers the valve ports, so the widest (face) OD is fixed for this valve
   // and must always be present. The optimizer may change the face shim's thickness/count
@@ -1608,8 +2162,14 @@ function runOptimize(v, catalog) {
     const out = [];
     for (const s of c) {
       const last = out[out.length - 1];
-      if (last && Math.abs(last.od - s.od) < 1e-9 && Math.abs(last.thk - s.thk) < 1e-9) last.count += s.count;
-      else out.push({ count: s.count, od: s.od, thk: s.thk });
+      if (
+        last &&
+        Math.abs(last.od - s.od) < 1e-9 &&
+        Math.abs(last.thk - s.thk) < 1e-9 &&
+        (last.type || 'round') === (s.type || 'round')
+      )
+        last.count += s.count;
+      else out.push({ count: s.count, od: s.od, thk: s.thk, type: s.type || 'round' });
     }
     return out;
   };
@@ -1622,30 +2182,35 @@ function runOptimize(v, catalog) {
       const [f] = cc.splice(fi, 1);
       cc.unshift(f);
     } else if (fi < 0) {
-      const ths = thksFor(faceOD);
-      // Normally faceOD is itself a real catalog OD, so ths[0] is always defined. Fall
-      // back to the catalog entry closest to faceOD on the rare chance a product/valve
-      // is defined with a faceOD that doesn't exactly match one of its own tune rows.
-      const thk = ths.length
-        ? ths[0]
-        : catalog.reduce((best, s) => (Math.abs(s.od - faceOD) < Math.abs(best.od - faceOD) ? s : best), catalog[0])
-            .thk;
-      cc.unshift({ count: 1, od: faceOD, thk });
+      const variants = variantsAt(faceOD);
+      // Normally faceOD is itself a real catalog OD, so variants[0] is always defined.
+      // Fall back to the catalog entry closest to faceOD on the rare chance a
+      // product/valve is defined with a faceOD that doesn't match one of its tune rows.
+      const fv =
+        variants[0] ||
+        catalog.reduce((best, s) => (Math.abs(s.od - faceOD) < Math.abs(best.od - faceOD) ? s : best), catalog[0]);
+      cc.unshift({ count: 1, od: fv.od, thk: fv.thk, type: fv.type || 'round' });
     }
     return cc;
   };
   const prep = (c) => norm(ensureFace(c));
   const sig = (c) =>
     prep(c)
-      .map((s) => `${s.count}x${s.od.toFixed(3)}x${s.thk.toFixed(4)}`)
-      .join('>'); // order-sensitive
+      .map((s) => `${s.count}x${s.od.toFixed(3)}${s.type === 'deltaT' ? 'T' : ''}x${s.thk.toFixed(4)}`)
+      .join('>'); // order- and type-sensitive
 
   const cache = new Map();
   const BUDGET = 2400;
   function evalStack(c) {
     const cn = prep(c);
     if (faceCnt(cn) < 1 || !isFace(cn[0])) return null; // ports must be covered by the contacting shim
-    const rows = cn.map((s) => ({ count: s.count, diam: s.od * IN, thickness: s.thk * IN, float: 0 }));
+    const rows = cn.map((s) => ({
+      count: s.count,
+      diam: s.od * IN,
+      thickness: s.thk * IN,
+      float: 0,
+      type: s.type || 'round',
+    }));
     let stack;
     try {
       stack = buildStack(rows, geom, mech, { Fmax, nSteps: 55, nSeg: 110 });
@@ -1689,10 +2254,18 @@ function runOptimize(v, catalog) {
     const out = [];
     const fc = faceCnt(cc);
     cc.forEach((s, i) => {
-      thksFor(s.od).forEach((t) => {
+      thksFor(s.od, s.type).forEach((t) => {
         if (Math.abs(t - s.thk) > 1e-9) {
           const n = clone(cc);
           n[i] = { ...s, thk: t };
+          out.push(n);
+        }
+      });
+      // round <-> delta swap at the same OD/thickness, when that exact part exists
+      variantsAt(s.od).forEach((vv) => {
+        if ((vv.type || 'round') !== (s.type || 'round') && Math.abs(vv.thk - s.thk) < 1e-9) {
+          const n = clone(cc);
+          n[i] = { ...s, type: vv.type || 'round' };
           out.push(n);
         }
       });
@@ -1700,11 +2273,14 @@ function runOptimize(v, catalog) {
       if (i >= 1) {
         ODS.forEach((od) => {
           if (Math.abs(od - s.od) > 1e-9) {
-            const ths = thksFor(od);
-            const nt = ths.some((t) => Math.abs(t - s.thk) < 1e-9) ? s.thk : nearest(ths, s.thk);
-            const n = clone(cc);
-            n[i] = { ...s, od, thk: nt };
-            out.push(n);
+            variantsAt(od).forEach((vv) => {
+              const ths = thksFor(od, vv.type);
+              if (!ths.length) return;
+              const nt = ths.some((t) => Math.abs(t - s.thk) < 1e-9) ? s.thk : nearest(ths, s.thk);
+              const n = clone(cc);
+              n[i] = { ...s, od, thk: nt, type: vv.type || 'round' };
+              out.push(n);
+            });
           }
         });
       }
@@ -1733,7 +2309,7 @@ function runOptimize(v, catalog) {
     catalog.forEach((s) => {
       positions.forEach((p) => {
         const n = clone(cc);
-        n.splice(p, 0, { count: 1, od: s.od, thk: s.thk });
+        n.splice(p, 0, { count: 1, od: s.od, thk: s.thk, type: s.type || 'round' });
         out.push(n);
       });
     });
@@ -1761,9 +2337,15 @@ function runOptimize(v, catalog) {
     return cur;
   }
 
+  const snapStart = catalogSnapsThk();
   const startCand0 = ensureFace(
     readRows()
-      .map((r) => ({ count: r.count, od: r.diam / IN, thk: canonThk(r.thickness / IN) }))
+      .map((r) => ({
+        count: r.count,
+        od: r.diam / IN,
+        thk: snapStart ? canonThk(r.thickness / IN) : r.thickness / IN,
+        type: r.type || 'round',
+      }))
       .filter((s) => s.od >= v.odMin - 1e-9 && s.od <= v.odMax + 1e-9),
   );
   if (prep(startCand0).length < 2) {
@@ -1775,8 +2357,15 @@ function runOptimize(v, catalog) {
   if (cache.size < BUDGET) climb(ensureFace([startCand0[0], ...startCand0.slice(1).sort((a, b) => b.od - a.od)])); // a plain-taper seed
   // structured seed: a small pivot behind the face — biases toward crossover-shaped optima
   if (cache.size < BUDGET) {
-    const ths = thksFor(ODS[0]);
-    climb(ensureFace([startCand0[0], { count: 1, od: ODS[0], thk: ths[0] }, ...startCand0.slice(1)]));
+    const pv = variantsAt(ODS[0])[0];
+    if (pv)
+      climb(
+        ensureFace([
+          startCand0[0],
+          { count: 1, od: pv.od, thk: pv.thk, type: pv.type || 'round' },
+          ...startCand0.slice(1),
+        ]),
+      );
   }
   for (let r = 0; r < 4 && cache.size < BUDGET; r++) {
     // perturbed restarts for diversity
@@ -1785,7 +2374,7 @@ function runOptimize(v, catalog) {
       // perturb two rows for a bigger jump
       const j = 1 + Math.floor(Math.random() * Math.max(1, pert.length - 1));
       if (pert[j]) {
-        const ths = thksFor(pert[j].od);
+        const ths = thksFor(pert[j].od, pert[j].type);
         // A row whose OD isn't an exact catalog match (e.g. still holding a
         // generic/manually-entered dimension) has no catalog thicknesses to pick
         // from — leave its thickness alone rather than perturbing to undefined.
@@ -1815,7 +2404,13 @@ function runOptimize(v, catalog) {
   const uMax = convVel(parseFloat(document.getElementById('uMax').value), resultUnit, 'mm');
   const scored = shortlist
     .map((r) => {
-      const rowsMM = r.e.rows.map((s) => ({ count: s.count, diam: s.od * IN, thickness: s.thk * IN, float: 0 }));
+      const rowsMM = r.e.rows.map((s) => ({
+        count: s.count,
+        diam: s.od * IN,
+        thickness: s.thk * IN,
+        float: 0,
+        type: s.type || 'round',
+      }));
       let stack;
       try {
         stack = buildStack(rowsMM, geom, mech, { Fmax, nSteps: 150, nSeg: 350 });
@@ -1856,11 +2451,11 @@ function runOptimize(v, catalog) {
   const stackDist = (a, b) => {
     const m = new Map();
     a.rows.forEach((s) => {
-      const k = s.od.toFixed(3) + '|' + s.thk.toFixed(4);
+      const k = s.od.toFixed(3) + (s.type === 'deltaT' ? 'T' : '') + '|' + s.thk.toFixed(4);
       m.set(k, (m.get(k) || 0) + s.count);
     });
     b.rows.forEach((s) => {
-      const k = s.od.toFixed(3) + '|' + s.thk.toFixed(4);
+      const k = s.od.toFixed(3) + (s.type === 'deltaT' ? 'T' : '') + '|' + s.thk.toFixed(4);
       m.set(k, (m.get(k) || 0) - s.count);
     });
     let d = 0;
@@ -1911,7 +2506,15 @@ function renderOptResults(Href, tolOver) {
     return;
   }
   const uf = resultUnit === 'mm' ? 'N' : 'lbf';
-  const rowsTxt = (rows) => rows.map((s) => `${s.count}×${s.od.toFixed(3)}″/${s.thk.toFixed(4)}″`).join('  ');
+  const du = prodDispUnit();
+  const rowsTxt = (rows) =>
+    rows
+      .map((s) => {
+        const od = fmtLen(toDispLen(s.od, du), du);
+        const thk = fmtLen(toDispLen(s.thk, du), du);
+        return `${s.count}×${od}${s.type === 'deltaT' ? 'T' : ''}/${thk}`;
+      })
+      .join('  ') + ` (${du})`;
   const flagChip = (f) =>
     f === 'in-band'
       ? `<span style="color:var(--accent2)">✓ in-band</span>`
@@ -1919,7 +2522,7 @@ function renderOptResults(Href, tolOver) {
         ? `<span style="color:var(--warn)">▼ under height</span>`
         : `<span style="color:#e08e0b">▲ over height</span>`;
   box.innerHTML =
-    `<p class="hint" style="margin:2px 0;">Reference height ${Href.toFixed(3)}mm (allowed up to +${tolOver.toFixed(2)}mm, never under). Suggestions use only real FOX parts for this valve:</p>` +
+    `<p class="hint" style="margin:2px 0;">Reference height ${Href.toFixed(3)}mm (allowed up to +${tolOver.toFixed(2)}mm, never under). Suggestions use only real ${PRODUCTS[curProduct] ? PRODUCTS[curProduct].label : ''} parts for this valve:</p>` +
     optCandidates
       .map(
         (c, i) => `
@@ -1939,9 +2542,21 @@ function applyCandidate(i) {
   const c = optCandidates[i];
   if (!c) return;
   loadingStock = true; // building the stack — don't let it flag itself
+  const v = currentValve();
+  const du = prodDispUnit();
   document.getElementById('shimBody').innerHTML = '';
-  setFieldValueAndUnit('stackID', 0.252, 'in');
-  c.rows.forEach((s) => addShimRow(s.count, s.od, s.thk, 'in', null, 0));
+  setFieldValueAndUnit('stackID', fmtLen(toDispLen(v.shimID, du), du), du);
+  c.rows.forEach((s) =>
+    addShimRow(
+      s.count,
+      fmtLen(toDispLen(s.od, du), du),
+      fmtLen(toDispLen(s.thk, du), du),
+      du,
+      null,
+      0,
+      s.type || 'round',
+    ),
+  );
   loadingStock = false;
   // an applied optimizer suggestion isn't a named stock tune — mark the tune selector custom
   const stockNote = stockTuneInfo ? ` (from ${stockTuneInfo.label})` : '';
@@ -1950,6 +2565,7 @@ function applyCandidate(i) {
   document.getElementById('presetNote').innerHTML =
     `<b>✏️ Custom</b> — optimizer suggestion ${c.label}${stockNote} applied.`;
   document.getElementById('optStatus').textContent = `applied ${c.label} — edit freely or pin it to compare`;
+  updateStackHeightDisplay();
   scheduleLiveCalc();
 }
 
@@ -1963,14 +2579,15 @@ function clearSuggestions() {
 function fillTable() {
   const tbody = document.querySelector('#resultsTable tbody');
   tbody.innerHTML = '';
-  const altUnit = resultUnit === 'mm' ? 'in' : 'mm';
   currentResults.forEach((p) => {
+    // The two velocity columns always read m/s(2dp)/in/s(3dp), independent of resultUnit -
+    // see the equivalent note on drawForceCurve()'s fmtForceChartTick. The damping coeff.
+    // column stays tied to resultUnit as before (N·s/mm or lbf·s/in, per its header).
     const uDisp = convVel(p.u, 'mm', resultUnit);
-    const uAlt = convVel(p.u, 'mm', altUnit);
     const FDisp = convForce(p.F, 'mm', resultUnit);
     const coeff = uDisp > 0 ? FDisp / uDisp : 0;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${fmtVel(uDisp, resultUnit)}</td><td>${fmtVel(uAlt, altUnit)}</td><td>${fmtForce(FDisp, resultUnit)}</td><td>${coeff.toFixed(4)}</td><td>${p.Re.toFixed(0)}</td>`;
+    tr.innerHTML = `<td>${(p.u / 1000).toFixed(2)}</td><td>${convVel(p.u, 'mm', 'in').toFixed(3)}</td><td>${fmtForce(FDisp, resultUnit)}</td><td>${coeff.toFixed(4)}</td><td>${p.Re.toFixed(0)}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -1998,52 +2615,66 @@ function saveConfig() {
   a.download = 'shim-stack-config.json';
   a.click();
 }
+// Applies a config object (canonical mm/N/MPa, same shape as gatherConfig()/LIVE_CONFIG_KEY)
+// to every relevant field, the valve type, and the shim rows. Shared by the file-based
+// load-config flow and restoring the last-used session on startup (see init()). Throws
+// on malformed input (missing/non-object geom, fluid, etc.) — callers decide how to react.
+function applyConfigToUI(cfg) {
+  setFieldValueAndUnit('dRod', fmtLen(cfg.geom.dRod, 'mm'), 'mm');
+  setFieldValueAndUnit('dValve', fmtLen(cfg.geom.dValve, 'mm'), 'mm');
+  setFieldValueAndUnit('rPort', fmtLen(cfg.geom.rPort, 'mm'), 'mm');
+  setFieldValueAndUnit('dPort', fmtLen(cfg.geom.dPort, 'mm'), 'mm');
+  setFieldValueAndUnit('wPort', fmtLen(cfg.geom.wPort, 'mm'), 'mm');
+  document.getElementById('nPort').value = cfg.geom.nPort;
+  setFieldValueAndUnit('dThrt', fmtLen(cfg.geom.dThrt, 'mm'), 'mm');
+  document.getElementById('nThrt').value = cfg.geom.nThrt;
+  setFieldValueAndUnit('stackID', fmtLen(cfg.geom.stackID, 'mm'), 'mm');
+  setFieldValueAndUnit(
+    'clampDia',
+    fmtLen(cfg.geom.clampDia != null ? cfg.geom.clampDia : cfg.geom.stackID, 'mm'),
+    'mm',
+  );
+  setFieldValueAndUnit('eMod', Math.round(cfg.mech.E), 'MPa');
+  document.getElementById('nu').value = cfg.mech.nu;
+  document.getElementById('rho').value = cfg.fluid.rho;
+  document.getElementById('cd').value = cfg.fluid.Cd;
+  document.getElementById('cst40').value = cfg.fluid.cSt40;
+  document.getElementById('cst100').value = cfg.fluid.cSt100;
+  document.getElementById('oilTemp').value = cfg.fluid.tempC;
+  document.getElementById('re0').value = cfg.fluid.Re0;
+  document.getElementById('viscMode').value = 'direct';
+  onViscModeChange();
+  document.getElementById('valveType').value = cfg.valveType;
+  resultUnit = 'mm';
+  document.getElementById('resultUnit').value = 'mm';
+  document.querySelectorAll('.uforce').forEach((el) => (el.textContent = 'N'));
+  document.querySelectorAll('.uvel').forEach((el) => (el.textContent = 'mm/s'));
+  document.querySelectorAll('.ulen').forEach((el) => (el.textContent = 'mm'));
+  document.getElementById('fMax').value = fmtForce(cfg.fMax, 'mm');
+  document.getElementById('uMax').value = fmtVel(cfg.uMax, 'mm');
+  document.getElementById('nPts').value = cfg.nPts;
+  clearPresetSelection();
+  document.getElementById('shimBody').innerHTML = '';
+  cfg.rows.forEach((r) =>
+    addShimRow(
+      r.count,
+      fmtLen(r.diam, 'mm'),
+      fmtLen(r.thickness, 'mm'),
+      'mm',
+      null,
+      fmtLen(r.float || 0, 'mm'),
+      r.type || 'round',
+    ),
+  );
+  showWarn(null);
+}
 function loadConfig(evt) {
   const file = evt.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
-      const cfg = JSON.parse(e.target.result); // canonical mm/N/MPa
-      setFieldValueAndUnit('dRod', fmtLen(cfg.geom.dRod, 'mm'), 'mm');
-      setFieldValueAndUnit('dValve', fmtLen(cfg.geom.dValve, 'mm'), 'mm');
-      setFieldValueAndUnit('rPort', fmtLen(cfg.geom.rPort, 'mm'), 'mm');
-      setFieldValueAndUnit('dPort', fmtLen(cfg.geom.dPort, 'mm'), 'mm');
-      setFieldValueAndUnit('wPort', fmtLen(cfg.geom.wPort, 'mm'), 'mm');
-      document.getElementById('nPort').value = cfg.geom.nPort;
-      setFieldValueAndUnit('dThrt', fmtLen(cfg.geom.dThrt, 'mm'), 'mm');
-      document.getElementById('nThrt').value = cfg.geom.nThrt;
-      setFieldValueAndUnit('stackID', fmtLen(cfg.geom.stackID, 'mm'), 'mm');
-      setFieldValueAndUnit(
-        'clampDia',
-        fmtLen(cfg.geom.clampDia != null ? cfg.geom.clampDia : cfg.geom.stackID, 'mm'),
-        'mm',
-      );
-      setFieldValueAndUnit('eMod', Math.round(cfg.mech.E), 'MPa');
-      document.getElementById('nu').value = cfg.mech.nu;
-      document.getElementById('rho').value = cfg.fluid.rho;
-      document.getElementById('cd').value = cfg.fluid.Cd;
-      document.getElementById('cst40').value = cfg.fluid.cSt40;
-      document.getElementById('cst100').value = cfg.fluid.cSt100;
-      document.getElementById('oilTemp').value = cfg.fluid.tempC;
-      document.getElementById('re0').value = cfg.fluid.Re0;
-      document.getElementById('viscMode').value = 'direct';
-      onViscModeChange();
-      document.getElementById('valveType').value = cfg.valveType;
-      resultUnit = 'mm';
-      document.getElementById('resultUnit').value = 'mm';
-      document.querySelectorAll('.uforce').forEach((el) => (el.textContent = 'N'));
-      document.querySelectorAll('.uvel').forEach((el) => (el.textContent = 'mm/s'));
-      document.querySelectorAll('.ulen').forEach((el) => (el.textContent = 'mm'));
-      document.getElementById('fMax').value = fmtForce(cfg.fMax, 'mm');
-      document.getElementById('uMax').value = fmtVel(cfg.uMax, 'mm');
-      document.getElementById('nPts').value = cfg.nPts;
-      clearPresetSelection();
-      document.getElementById('shimBody').innerHTML = '';
-      cfg.rows.forEach((r) =>
-        addShimRow(r.count, fmtLen(r.diam, 'mm'), fmtLen(r.thickness, 'mm'), 'mm', null, fmtLen(r.float || 0, 'mm')),
-      );
-      showWarn(null);
+      applyConfigToUI(JSON.parse(e.target.result)); // canonical mm/N/MPa
       scheduleLiveCalc();
     } catch (err) {
       showWarn('Could not read that file: ' + err.message);
@@ -2057,17 +2688,14 @@ function exportCSV() {
     showWarn('Run a calculation first.');
     return;
   }
-  const altUnit = resultUnit === 'mm' ? 'in' : 'mm';
-  const vLabel = resultUnit === 'mm' ? 'mm_s' : 'in_s',
-    vAltLabel = altUnit === 'mm' ? 'mm_s' : 'in_s';
   const fLabel = resultUnit === 'mm' ? 'N' : 'lbf';
-  let csv = `shaft_velocity_${vLabel},shaft_velocity_${vAltLabel},damping_force_${fLabel},damping_coeff_${fLabel}_s_per_${resultUnit === 'mm' ? 'mm' : 'in'},reynolds\n`;
+  // Velocity columns always export m/s + in/s, independent of resultUnit - see fillTable().
+  let csv = `shaft_velocity_m_s,shaft_velocity_in_s,damping_force_${fLabel},damping_coeff_${fLabel}_s_per_${resultUnit === 'mm' ? 'mm' : 'in'},reynolds\n`;
   currentResults.forEach((p) => {
     const uDisp = convVel(p.u, 'mm', resultUnit);
-    const uAlt = convVel(p.u, 'mm', altUnit);
     const FDisp = convForce(p.F, 'mm', resultUnit);
     const coeff = uDisp > 0 ? FDisp / uDisp : 0;
-    csv += `${uDisp.toFixed(4)},${uAlt.toFixed(4)},${FDisp.toFixed(4)},${coeff.toFixed(5)},${p.Re.toFixed(1)}\n`;
+    csv += `${(p.u / 1000).toFixed(4)},${convVel(p.u, 'mm', 'in').toFixed(4)},${FDisp.toFixed(4)},${coeff.toFixed(5)},${p.Re.toFixed(1)}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
@@ -2286,11 +2914,41 @@ function wireStaticControls() {
     ['clearTargetBtn', 'click', () => clearTarget()],
     ['optBtn', 'click', () => optimizeToTarget()],
     ['clearSuggestionsBtn', 'click', () => clearSuggestions()],
+    ['photoFile', 'change', loadPhotoFile],
+    ['photoUndoBtn', 'click', () => photoUndo()],
+    ['photoFinishPortBtn', 'click', () => photoFinishPort()],
+    ['photoResetBtn', 'click', () => photoReset()],
+    ['photoApplyBtn', 'click', () => applyPhotoResult()],
+    [
+      'photoSnapToggle',
+      'change',
+      (e) => {
+        photoSnapEnabled = e.target.checked;
+      },
+    ],
+    [
+      'photoOtherPorts',
+      'input',
+      (e) => {
+        photoOtherPortsCount = Math.max(0, parseInt(e.target.value, 10) || 0);
+        updatePhotoUI();
+      },
+    ],
   ];
   bindings.forEach(([id, evt, fn]) => document.getElementById(id).addEventListener(evt, fn));
 }
 
-function init() {
+async function init() {
+  try {
+    await loadCatalog();
+  } catch (err) {
+    // A dedicated, persistent status line (not showWarn's #warnBox) — that banner is a
+    // one-slot transient shared with live-calc validation messages and gets cleared by
+    // loadExample()/runCalc() a moment later, which would wipe this before it's ever seen.
+    const box = document.getElementById('catalogLoadWarn');
+    box.textContent = `Couldn't load the shim/valve catalog (${err.message}). Stock-product presets and the catalog parts bin are unavailable this session — custom stacks still work.`;
+    box.style.display = 'block';
+  }
   wireStaticControls();
   const shimBody = document.getElementById('shimBody');
   shimBody.addEventListener('input', () => {
@@ -2314,7 +2972,7 @@ function init() {
   document.getElementById('catalogChips').addEventListener('click', (e) => {
     const btn = e.target.closest('.catchip');
     if (!btn) return;
-    addCatalogShim(parseFloat(btn.dataset.od), parseFloat(btn.dataset.thk));
+    addCatalogShim(parseFloat(btn.dataset.od), parseFloat(btn.dataset.thk), btn.dataset.type);
   });
   document.getElementById('optResults').addEventListener('click', (e) => {
     const btn = e.target.closest('.applyCandidateBtn');
@@ -2326,6 +2984,10 @@ function init() {
   ['rPort', 'dPort', 'wPort', 'nPort', 'dValve', 'dRod'].forEach((id) => {
     document.getElementById(id).addEventListener('input', drawPortFaceDiagram);
   });
+  document.getElementById('photoCanvas').addEventListener('click', photoCanvasClick);
+  new ResizeObserver(() => {
+    if (photoImg) drawPhotoCanvas();
+  }).observe(document.getElementById('photoCanvas'));
 
   // Live recalculation: any edit to an input/select schedules a debounced solve.
   // Listens on document.body — NOT a specific container — so edits keep triggering
@@ -2385,7 +3047,20 @@ function init() {
     window.addEventListener('pointerup', (e) => forceCanvasPointer(e, 'up'));
     if (targetOn) cv.style.touchAction = 'none';
   })();
-  loadExample();
+  // Restore whatever stack was last successfully computed (LIVE_CONFIG_KEY is written on
+  // every successful calc, live or explicit) so a reload picks up where you left off,
+  // rather than always resetting to the built-in demo stack.
+  let restored = false;
+  const savedConfig = lsGet(LIVE_CONFIG_KEY);
+  if (savedConfig) {
+    try {
+      applyConfigToUI(savedConfig);
+      restored = true;
+    } catch (err) {
+      console.warn('Could not restore last-used config, falling back to the example stack:', err);
+    }
+  }
+  if (!restored) loadExample();
   onViscModeChange();
   drawPortFaceDiagram();
   runCalc({ live: true }); // populate outputs immediately on load
@@ -2397,5 +3072,9 @@ function init() {
     drawShimRefDiagram();
     drawPortFaceDiagram();
   });
+  // Canvas colors are read from the theme at draw time (see themeColor() in
+  // canvas-utils.js), so switching light/dark doesn't repaint on its own - redraw
+  // everything once when theme.js announces a change.
+  document.addEventListener('themechange', redrawAllVisuals);
 }
 init();

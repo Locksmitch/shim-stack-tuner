@@ -2,7 +2,7 @@
   "name": "shim-stack-tuner",
   "version": "1.0.0",
   "private": true,
-  "description": "Standalone browser-based shim stack tuning calculator",
+  "description": "Valving Toolbox - browser-based suspension valving calculators (shim stack tuner, spring curve calculator, shim delta tool, oil viscosity comparison)",
   "scripts": {
     "start": "node server.js",
     "test": "npm run test:unit && npm run test:e2e",

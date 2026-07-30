@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shim Delta Tool — Valving Toolbox</title>
+<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.45; }
+  .page-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 4px; padding: 20px 20px 0; }
+  .page-sub { font-size: 0.8rem; color: var(--muted); margin: 0; padding: 0 20px 12px; }
+  .wrap { padding: 1rem 20px 3rem; max-width: 760px; margin: 0 auto; }
+  .controls { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 140px; }
+  .field label { font-size: 13px; color: var(--muted); }
+  select { padding: 7px 9px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 13px; }
+  .arrow { font-size: 22px; color: var(--muted); padding-bottom: 6px; align-self: flex-end; }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .stat { background: var(--panel2); border-radius: var(--radius-md); padding: 12px 14px; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .stat-val { font-size: 22px; font-weight: 500; }
+  .remove .stat-val { color: var(--warn); }
+  .keep .stat-val { color: var(--muted); }
+  .add .stat-val { color: var(--accent2); }
+  .section { margin-bottom: 1.25rem; }
+  .section-head { font-size: 13px; font-weight: 500; padding: 6px 10px; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+  .head-remove { background: var(--warn-bg); color: var(--warn); }
+  .head-keep   { background: var(--panel2); color: var(--muted); }
+  .head-add    { background: var(--success-bg); color: var(--accent2); }
+  .shim-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-top: none; font-size: 13px; background: var(--panel); }
+  .shim-row:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+  .qty { font-size: 11px; font-weight: 500; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .qty-remove { background: var(--warn-bg); color: var(--warn); }
+  .qty-keep   { background: var(--panel2); color: var(--muted); }
+  .qty-add    { background: var(--success-bg); color: var(--accent2); }
+  .shim-spec { color: var(--ink); font-family: var(--font-mono); font-size: 12px; }
+  .type-tag { font-size: 11px; background: var(--panel2); color: var(--muted2); border-radius: 999px; padding: 2px 8px; margin-left: auto; white-space: nowrap; }
+  .empty { font-size: 13px; color: var(--muted2); padding: 10px; text-align: center; border: 1px solid var(--line); border-top: none; border-radius: 0 0 var(--radius-md) var(--radius-md); background: var(--panel); }
+  .divider { border: none; border-top: 1px solid var(--line); margin: 1.25rem 0; }
+  .meta { font-size: 12px; color: var(--muted2); margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+
+<nav class="sitenav">
+  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+  <div class="sitenav-links">
+    <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
+    <a href="spring-calculator.html">Spring Curve Calculator</a>
+    <a href="shim-delta.html" class="active">Shim Delta Tool</a>
+    <a href="oil-viscosity.html">Oil Viscosity</a>
+    <a href="spring-damper-curve.html">Wheel Force</a>
+  </div>
+  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+</nav>
+
+<h1 class="page-title">🔀 Shim Delta Tool</h1>
+<p class="page-sub">Select two tunes to see exactly which shims to add, remove, or keep.</p>
+
+<div class="wrap">
+
+<div class="controls">
+  <div class="field">
+    <label>Tune you have</label>
+    <select id="fromTune"></select>
+  </div>
+  <div class="arrow" aria-hidden="true">→</div>
+  <div class="field">
+    <label>Tune you want</label>
+    <select id="toTune"></select>
+  </div>
+</div>
+
+<div id="output"></div>
+
+</div>
+
+<script>
+const TUNES = {
+  "RL20": {
+    type: "Rebound Linear", dwg: "805-05-720-KIT", thick: ".067-.075\" / 1.71-1.91mm",
+    shims: [
+      ".900 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".510 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      ".800 OD × .377 ID × .0045 TH",
+    ]
+  },
+  "RL30": {
+    type: "Rebound Linear", dwg: "805-05-721-KIT", thick: ".070-.078\" / 1.79-1.98mm",
+    shims: [
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".510 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      ".800 OD × .377 ID × .0045 TH",
+    ]
+  },
+  "RL40": {
+    type: "Rebound Linear", dwg: "805-05-722-KIT", thick: ".070-.078\" / 1.79-1.98mm",
+    shims: [
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".530 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      ".800 OD × .377 ID × .0045 TH",
+    ]
+  },
+  "RL50": {
+    type: "Rebound Linear", dwg: "805-05-723-KIT", thick: ".070-.078\" / 1.79-1.98mm",
+    shims: [
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".550 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      ".800 OD × .377 ID × .0045 TH",
+    ]
+  },
+  "RL60": {
+    type: "Rebound Linear", dwg: "805-05-724-KIT", thick: ".080-.088\" / 2.04-2.24mm",
+    shims: [
+      ".900 OD × .377 ID × .006 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".550 OD × .377 ID × .008 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      ".800 OD × .377 ID × .0045 TH",
+    ]
+  },
+  "CS10": {
+    type: "Compression Split", dwg: "805-05-710-KIT", thick: ".060-.066\" / 1.52-1.66mm",
+    shims: [
+      ".900 OD × .377 ID × .0045 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .0045 TH",
+      ".800 OD × .377 ID × .0045 TH",
+      ".700 OD × .377 ID × .0045 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+    ]
+  },
+  "CS30": {
+    type: "Compression Split", dwg: "805-05-712-KIT", thick: ".058-.064\" / 1.47-1.61mm",
+    shims: [
+      ".900 OD × .377 ID × .0045 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".510 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+    ]
+  },
+  "CS50": {
+    type: "Compression Split", dwg: "805-05-714-KIT", thick: ".062-.068\" / 1.59-1.73mm",
+    shims: [
+      ".900 OD × .377 ID × .0045 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".530 OD × .377 ID × .010 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+    ]
+  },
+  "CS70": {
+    type: "Compression Split", dwg: "805-05-716-KIT", thick: ".069-.075\" / 1.76-1.91mm",
+    shims: [
+      ".900 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .0045 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".510 OD × .377 ID × .008 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+    ]
+  },
+  "CS90": {
+    type: "Compression Split", dwg: "805-05-718-KIT", thick: ".069-.075\" / 1.76-1.91mm",
+    shims: [
+      ".900 OD × .377 ID × .006 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .0045 TH",
+      ".900 OD × .377 ID × .006 TH",
+      ".800 OD × .377 ID × .006 TH",
+      ".700 OD × .377 ID × .006 TH",
+      ".600 OD × .377 ID × .006 TH",
+      ".490 OD × .377 ID × .008 TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.25mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+      "Metric 12.0mm OD × 9.58mm ID × 0.10mm TH",
+    ]
+  },
+  "B20": {
+    type: "Base Valve", dwg: "805-05-238-KIT", thick: "Inst: .021-.024\" | Free: .025-.027\"",
+    shims: [
+      ".350 OD × .252 ID × .010 TH",
+      ".350 OD × .252 ID × .020 TH",
+      ".400 OD × .252 ID × .0045 TH",
+      ".500 OD × .252 ID × .0045 TH",
+      ".600 OD × .252 ID × .0045 TH",
+      ".700 OD × .252 ID × .0045 TH",
+      "Ring Shim .900 OD × .810 ID × .008 TH",
+      ".800 OD × .252 ID × .0045 TH",
+      ".900 OD × .252 ID × .006 TH",
+    ]
+  },
+  "B40": {
+    type: "Base Valve", dwg: "805-05-239-KIT", thick: "Inst: .033-.036\" | Free: .036-.040\"",
+    shims: [
+      ".350 OD × .252 ID × .010 TH",
+      ".350 OD × .252 ID × .020 TH",
+      ".400 OD × .252 ID × .0045 TH",
+      ".500 OD × .252 ID × .0045 TH",
+      ".600 OD × .252 ID × .0045 TH",
+      ".700 OD × .252 ID × .0045 TH",
+      "Ring Shim .900 OD × .810 ID × .008 TH",
+      ".800 OD × .252 ID × .0045 TH",
+      ".900 OD × .252 ID × .006 TH",
+      ".900 OD × .252 ID × .006 TH",
+    ]
+  },
+  "B60": {
+    type: "Base Valve", dwg: "805-05-240-KIT", thick: "Inst: .027-.030\" | Free: .031-.033\"",
+    shims: [
+      ".350 OD × .252 ID × .010 TH",
+      ".350 OD × .252 ID × .020 TH",
+      ".450 OD × .252 ID × .010 TH",
+      ".500 OD × .252 ID × .006 TH",
+      ".600 × .252 × .006 TH",
+      ".700 OD × .252 ID × .006 TH",
+      ".800 OD × .252 ID × .006 TH",
+      "Ring Shim .900 OD × .810 ID × .008 TH",
+      ".800 OD × .252 ID × .0045 TH",
+      ".900 OD × .252 ID × .006 TH",
+      ".900 OD × .252 ID × .006 TH",
+    ]
+  },
+  "B80": {
+    type: "Base Valve", dwg: "805-05-241-KIT", thick: "Inst: .021-.023\" | Free: .023-.025\"",
+    shims: [
+      ".350 OD × .252 ID × .010 TH",
+      ".350 OD × .252 ID × .020 TH",
+      ".450 OD × .252 ID × .020 TH",
+      ".500 OD × .252 ID × .008 TH",
+      ".600 OD × .252 ID × .008 TH",
+      ".700 OD × .252 ID × .008 TH",
+      ".800 OD × .252 ID × .008 TH",
+      "Ring Shim .900 OD × .810 ID × .008 TH",
+      ".800 OD × .252 ID × .006 TH",
+      ".900 OD × .252 ID × .008 TH",
+    ]
+  },
+  "B100": {
+    type: "Base Valve", dwg: "805-05-242-KIT", thick: "Inst: .023-.025\" | Free: .025-.027\"",
+    shims: [
+      ".350 OD × .252 ID × .010 TH",
+      ".350 OD × .252 ID × .020 TH",
+      ".450 OD × .252 ID × .020 TH",
+      ".500 OD × .252 ID × .008 TH",
+      ".600 OD × .252 ID × .008 TH",
+      ".700 OD × .252 ID × .008 TH",
+      "Ring Shim .900 OD × .810 ID × .010 TH",
+      ".800 OD × .252 ID × .008 TH",
+      ".900 OD × .252 ID × .008 TH",
+    ]
+  },
+};
+
+function countShims(arr) {
+  const map = {};
+  arr.forEach(s => { map[s] = (map[s] || 0) + 1; });
+  return map;
+}
+
+function calcDelta(fromKey, toKey) {
+  const from = countShims(TUNES[fromKey].shims);
+  const to   = countShims(TUNES[toKey].shims);
+  const all  = new Set([...Object.keys(from), ...Object.keys(to)]);
+  const remove = [], keep = [], add = [];
+  all.forEach(shim => {
+    const f = from[shim] || 0;
+    const t = to[shim]   || 0;
+    if (f > t) remove.push({ shim, qty: f - t, fromQty: f, toQty: t });
+    else if (f === t && f > 0) keep.push({ shim, qty: f });
+    else if (t > f) add.push({ shim, qty: t - f, fromQty: f, toQty: t });
+  });
+  return { remove, keep, add };
+}
+
+function shimRows(items, qtyClass, sign) {
+  if (!items.length) return `<div class="empty">None</div>`;
+  return items.map(it => `
+    <div class="shim-row">
+      <span class="qty ${qtyClass}">${sign}${it.qty}×</span>
+      <span class="shim-spec">${it.shim}</span>
+    </div>`).join('');
+}
+
+function render() {
+  const fromKey = document.getElementById('fromTune').value;
+  const toKey   = document.getElementById('toTune').value;
+  const fromT = TUNES[fromKey];
+  const toT   = TUNES[toKey];
+
+  if (fromKey === toKey) {
+    document.getElementById('output').innerHTML = `
+      <p style="color:var(--muted);font-size:14px;">Select two different tunes to see the delta.</p>`;
+    return;
+  }
+
+  const { remove, keep, add } = calcDelta(fromKey, toKey);
+
+  document.getElementById('output').innerHTML = `
+    <div class="meta">
+      <strong>${fromKey}</strong> (${fromT.dwg}) → <strong>${toKey}</strong> (${toT.dwg}) &nbsp;·&nbsp;
+      Stack: ${fromT.thick} → ${toT.thick}
+    </div>
+
+    <div class="summary-grid">
+      <div class="stat remove">
+        <div class="stat-label">− Remove</div>
+        <div class="stat-val">${remove.reduce((s,i)=>s+i.qty,0)}</div>
+      </div>
+      <div class="stat keep">
+        <div class="stat-label">✓ Keep</div>
+        <div class="stat-val">${keep.reduce((s,i)=>s+i.qty,0)}</div>
+      </div>
+      <div class="stat add">
+        <div class="stat-label">+ Add</div>
+        <div class="stat-val">${add.reduce((s,i)=>s+i.qty,0)}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head head-remove">− Remove from ${fromKey}</div>
+      ${shimRows(remove, 'qty-remove', '−')}
+    </div>
+
+    <div class="section">
+      <div class="section-head head-keep">✓ Keep (unchanged)</div>
+      ${shimRows(keep, 'qty-keep', '')}
+    </div>
+
+    <div class="section">
+      <div class="section-head head-add">+ Add for ${toKey}</div>
+      ${shimRows(add, 'qty-add', '+')}
+    </div>
+  `;
+}
+
+const tuneKeys = Object.keys(TUNES);
+const fromSel = document.getElementById('fromTune');
+const toSel   = document.getElementById('toTune');
+
+tuneKeys.forEach(k => {
+  const o1 = document.createElement('option'); o1.value = k; o1.textContent = `${k} — ${TUNES[k].type}`;
+  const o2 = document.createElement('option'); o2.value = k; o2.textContent = `${k} — ${TUNES[k].type}`;
+  fromSel.appendChild(o1);
+  toSel.appendChild(o2);
+});
+
+fromSel.value = 'RL50';
+toSel.value   = 'RL40';
+
+fromSel.addEventListener('change', render);
+toSel.addEventListener('change', render);
+render();
+</script>
+
+<script src="theme.js"></script>
+</body>
+</html>

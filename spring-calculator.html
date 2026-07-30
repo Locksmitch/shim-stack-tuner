@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spring Curve Calculator — Valving Toolbox</title>
+<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); padding: 20px; margin: 0; }
+  .page-title { font-size: 1.1rem; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+  .subtitle { font-size: 0.72rem; color: var(--muted); margin-bottom: 16px; }
+  .outer { display: grid; grid-template-columns: 260px 260px 260px 260px 1fr; gap: 12px; align-items: start; }
+  .col-header { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; padding: 6px 10px; border-radius: 7px; margin-bottom: 10px; text-align: center; }
+  .col-header-a { background: #1a2540; color: #60a5fa; border: 1px solid #1e3a6e; }
+  .col-header-b { background: #2a1a20; color: #fb923c; border: 1px solid #6e2a1e; }
+  .col-header-c { background: #1a2520; color: #2dd4bf; border: 1px solid #1e6e5a; }
+  .col-header-d { background: #2a1a1a; color: #f87171; border: 1px solid #6e1e1e; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .card-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .a1{color:#60a5fa;} .a2{color:#f472b6;} .ac{color:#3b82f6;}
+  .b1{color:#fb923c;} .b2{color:#a78bfa;} .bc{color:#a3e635;}
+  .cc{color:#2dd4bf;}
+  .dc{color:#f87171;}
+  .row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+  .row label { font-size: 0.71rem; color: var(--muted); }
+  .row span  { font-size: 0.78rem; font-weight: 600; color: var(--ink); }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin-top: 2px; }
+  input[type=number] {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 4px 7px; width: 100%; font-size: 0.8rem;
+    margin-top: 2px; outline: none; -moz-appearance: textfield;
+  }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+  input[type=number]:focus { border-color: var(--accent); }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 5px; }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .input-group label { font-size: 0.67rem; color: var(--muted); display: block; margin-bottom: 1px; }
+  .input-hint { font-size: 0.6rem; color: var(--muted); margin-top: 1px; }
+  .rate-box { background: var(--panel2); border-radius: 6px; padding: 6px 8px; margin-top: 8px; display: flex; align-items: center; justify-content: space-between; }
+  .rate-box .rate-label { font-size: 0.67rem; color: var(--muted); }
+  .rate-box .rate-val   { font-size: 0.95rem; font-weight: 700; }
+  .derived-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+  .derived-item { text-align: center; }
+  .derived-label { font-size: 0.58rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .derived-val   { font-size: 0.78rem; font-weight: 700; color: var(--muted); margin-top: 1px; }
+  .series-box { border-radius: 7px; padding: 8px 10px; margin-bottom: 6px; }
+  .series-box-a { background: #0d1a2e; border: 1px solid #3b82f6; }
+  .series-box-b { background: #1a1f0b; border: 1px solid #a3e635; }
+  .series-box-c { background: #0b2020; border: 1px solid #2dd4bf; }
+  .series-box-d { background: #200b0b; border: 1px solid #f87171; }
+  .formula { font-size: 0.65rem; color: #94a3b8; margin-bottom: 3px; }
+  .kval    { font-size: 1rem; font-weight: 700; }
+  .klabel  { font-size: 0.65rem; color: #94a3b8; margin-top: 1px; }
+  .stat-row { display: flex; gap: 6px; margin-top: 6px; }
+  .stat     { background: var(--panel2); border-radius: 6px; padding: 5px 6px; flex: 1; text-align: center; }
+  .stat-label { font-size: 0.6rem; color: var(--muted); }
+  .stat-val   { font-size: 0.78rem; font-weight: 700; color: var(--ink); margin-top: 1px; }
+  .phase-note { font-size: 0.65rem; color: var(--muted); margin-top: 6px; padding: 5px 7px; background: var(--panel2); border-radius: 5px; line-height: 1.55; }
+  .phase-note-a { border-left: 2px solid #3b82f6; }
+  .phase-note-b { border-left: 2px solid #a3e635; }
+  .phase-note-c { border-left: 2px solid #2dd4bf; }
+  .phase-note-d { border-left: 2px solid #f87171; }
+  .section-label { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; margin-top: 6px; }
+  .chart-col { display: flex; flex-direction: column; min-width: 0; }
+  .canvas-wrap {
+    position: relative; border-radius: 10px; background: #1e2130;
+    resize: both; overflow: auto;
+    min-width: 300px; min-height: 260px;
+    width: 100%; box-sizing: border-box;
+    border: 1px solid #2d3148;
+  }
+  .canvas-wrap::after {
+    content: ''; position: absolute; bottom: 4px; right: 4px;
+    width: 10px; height: 10px;
+    border-right: 2px solid #4b5563; border-bottom: 2px solid #4b5563;
+    border-radius: 1px; pointer-events: none; opacity: 0.6;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  .chart-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; gap: 6px; }
+  .btn-popout {
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; padding: 4px 10px; font-size: 0.68rem; cursor: pointer;
+    display: flex; align-items: center; gap: 5px; transition: background 0.15s, color 0.15s;
+  }
+  .btn-popout:hover { background: var(--panel2); color: var(--ink); }
+  .popout-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 1000; align-items: center; justify-content: center;
+  }
+  .popout-overlay.active { display: flex; }
+  .popout-window {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; position: relative;
+    resize: both; overflow: auto;
+    width: 90vw; height: 85vh;
+    min-width: 500px; min-height: 400px;
+    display: flex; flex-direction: column;
+  }
+  .popout-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .popout-title { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .btn-close {
+    background: var(--panel2); border: none; color: var(--muted); border-radius: 6px;
+    width: 26px; height: 26px; cursor: pointer; font-size: 1rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .btn-close:hover { background: #ef4444; color: white; }
+  #popout-canvas-wrap { flex: 1; border-radius: 8px; background: #1e2130; overflow: hidden; position: relative; }
+  #popout-canvas { display: block; width: 100%; height: 100%; }
+  .legend { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 0.7rem; color: var(--muted); }
+  .leg-line { width: 18px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .shared-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+  .shared-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .split-panel { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; margin-top: 8px; }
+  .split-title { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .split-row   { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .split-label { font-size: 0.7rem; color: var(--muted); width: 52px; flex-shrink: 0; }
+  .split-bar-bg { flex: 1; height: 7px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .split-bar    { height: 100%; border-radius: 4px; transition: width 0.12s; }
+  .split-val    { font-size: 0.72rem; font-weight: 700; width: 50px; text-align: right; flex-shrink: 0; }
+  .probe-row    { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .probe-row label { font-size: 0.71rem; color: var(--muted); white-space: nowrap; }
+  .probe-force  { font-size: 0.78rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .warn { font-size: 0.65rem; color: #f59e0b; margin-top: 3px; display: none; }
+  .formula-note { font-size: 0.6rem; color: var(--muted); margin-top: 8px; text-align: center; }
+  .sag-panel { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; margin-top: 8px; }
+  .sag-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .sag-out { background: var(--bg); border-radius: 5px; padding: 5px 8px; }
+  .sag-out-label { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .sag-out-val   { font-size: 0.8rem; font-weight: 700; margin-top: 1px; }
+  .divider { border: none; border-top: 1px solid var(--line); margin: 8px 0; }
+  .sub-section { font-size: 0.62rem; color: var(--muted); margin-bottom: 5px; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<nav class="sitenav">
+  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+  <div class="sitenav-links">
+    <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
+    <a href="spring-calculator.html" class="active">Spring Curve Calculator</a>
+    <a href="shim-delta.html">Shim Delta Tool</a>
+    <a href="oil-viscosity.html">Oil Viscosity</a>
+    <a href="spring-damper-curve.html">Wheel Force</a>
+  </div>
+  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+</nav>
+
+<h2 class="page-title">📈 Spring Curve Calculator</h2>
+<p class="subtitle">Combo A &amp; B = dual springs in series &nbsp;·&nbsp; Combo C &amp; D = single springs &nbsp;·&nbsp; Chrome-silicon (G = 11,500,000 psi)</p>
+
+<div class="outer">
+
+  <!-- ==== COMBO A - dual series ==== -->
+  <div>
+    <div class="col-header col-header-a">Combo A — Dual Series</div>
+
+    <div class="card">
+      <div class="card-title a1">Spring A1</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="a_fl1" value="175" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="a_nc1" value="10" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="a_wd1" value="8" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="a_sid1" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="a_p1" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_A1</span><span class="rate-val a1" id="a_vk1">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="a_cb1">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val a1" id="a_mt1">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="a_mf1">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title a2">Spring A2</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="a_fl2" value="175" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="a_nc2" value="8" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="a_wd2" value="9" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="a_sid2" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="a_p2" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_A2</span><span class="rate-val a2" id="a_vk2">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="a_cb2">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val a2" id="a_mt2">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="a_mf2">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title ac">Combo A — Series Result</div>
+      <div class="series-box series-box-a">
+        <div class="formula">1/k = 1/k_A1 + 1/k_A2</div>
+        <div class="kval ac" id="a_ks">—</div>
+        <div class="klabel">Phase 1 combined rate</div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-label">Total Free Length</div><div class="stat-val" id="a_fl_tot">—</div></div>
+        <div class="stat"><div class="stat-label">Total Travel</div><div class="stat-val" id="a_t_tot">—</div></div>
+      </div>
+      <div class="phase-note phase-note-a" id="a_phase">—</div>
+    </div>
+  </div>
+
+  <!-- ==== COMBO B - dual series ==== -->
+  <div>
+    <div class="col-header col-header-b">Combo B — Dual Series</div>
+
+    <div class="card">
+      <div class="card-title b1">Spring B1</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="b_fl1" value="160" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="b_nc1" value="12" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="b_wd1" value="7" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="b_sid1" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="b_p1" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_B1</span><span class="rate-val b1" id="b_vk1">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="b_cb1">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val b1" id="b_mt1">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="b_mf1">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title b2">Spring B2</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="b_fl2" value="190" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="b_nc2" value="9" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="b_wd2" value="10" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="b_sid2" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="b_p2" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_B2</span><span class="rate-val b2" id="b_vk2">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="b_cb2">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val b2" id="b_mt2">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="b_mf2">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title bc">Combo B — Series Result</div>
+      <div class="series-box series-box-b">
+        <div class="formula">1/k = 1/k_B1 + 1/k_B2</div>
+        <div class="kval bc" id="b_ks">—</div>
+        <div class="klabel">Phase 1 combined rate</div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-label">Total Free Length</div><div class="stat-val" id="b_fl_tot">—</div></div>
+        <div class="stat"><div class="stat-label">Total Travel</div><div class="stat-val" id="b_t_tot">—</div></div>
+      </div>
+      <div class="phase-note phase-note-b" id="b_phase">—</div>
+    </div>
+  </div>
+
+  <!-- ==== COMBO C - single spring ==== -->
+  <div>
+    <div class="col-header col-header-c">Combo C — Single Spring</div>
+
+    <div class="card">
+      <div class="card-title cc">Spring C</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="c_fl" value="200" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="c_nc" value="9" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="c_wd" value="9" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="c_sid" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="c_p" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_C</span><span class="rate-val cc" id="c_vk">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="c_cb">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val cc" id="c_mt">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="c_mf">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title cc">Combo C — Single Result</div>
+      <div class="series-box series-box-c">
+        <div class="formula">Linear: F = k · x</div>
+        <div class="kval cc" id="c_ks">—</div>
+        <div class="klabel">Spring rate (no kink)</div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-label">Free Length</div><div class="stat-val" id="c_fl_out">—</div></div>
+        <div class="stat"><div class="stat-label">Max Travel</div><div class="stat-val" id="c_t_out">—</div></div>
+      </div>
+      <div class="phase-note phase-note-c" id="c_phase">—</div>
+    </div>
+  </div>
+
+  <!-- ==== COMBO D - single spring ==== -->
+  <div>
+    <div class="col-header col-header-d">Combo D — Single Spring</div>
+
+    <div class="card">
+      <div class="card-title dc">Spring D</div>
+      <div class="section-label">Dimensions</div>
+      <div class="g3">
+        <div class="input-group"><label>Free Length</label><input type="number" id="d_fl" value="200" min="10" max="500" step="1"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Active Coils</label><input type="number" id="d_nc" value="11" min="1" max="60" step="0.5"><div class="input-hint">count</div></div>
+        <div class="input-group"><label>Wire Dia.</label><input type="number" id="d_wd" value="10" min="0.5" max="30" step="0.1"><div class="input-hint">mm</div></div>
+      </div>
+      <div class="g2">
+        <div class="input-group"><label>Spring ID</label><input type="number" id="d_sid" value="50" min="5" max="300" step="0.5"><div class="input-hint">mm</div></div>
+        <div class="input-group"><label>Preload (lb)</label><input type="number" id="d_p" value="0" min="0" max="500" step="1"><div class="input-hint">initial load</div></div>
+      </div>
+      <div class="rate-box"><span class="rate-label">Computed Rate k_D</span><span class="rate-val dc" id="d_vk">—</span></div>
+      <div class="derived-box">
+        <div class="derived-item"><div class="derived-label">Coil-bind</div><div class="derived-val" id="d_cb">—</div></div>
+        <div class="derived-item"><div class="derived-label">Max Travel</div><div class="derived-val dc" id="d_mt">—</div></div>
+        <div class="derived-item"><div class="derived-label">Bind Force</div><div class="derived-val" id="d_mf">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title dc">Combo D — Single Result</div>
+      <div class="series-box series-box-d">
+        <div class="formula">Linear: F = k · x</div>
+        <div class="kval dc" id="d_ks">—</div>
+        <div class="klabel">Spring rate (no kink)</div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-label">Free Length</div><div class="stat-val" id="d_fl_out">—</div></div>
+        <div class="stat"><div class="stat-label">Max Travel</div><div class="stat-val" id="d_t_out">—</div></div>
+      </div>
+      <div class="phase-note phase-note-d" id="d_phase">—</div>
+    </div>
+  </div>
+
+  <!-- ==== CHART ==== -->
+  <div class="chart-col">
+    <div class="chart-toolbar">
+      <button class="btn-popout" id="btn-popout">⛶ Pop out chart</button>
+    </div>
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="legend">
+      <div class="leg-item"><div class="leg-line" style="background:#3b82f6;"></div>Combo A</div>
+      <div class="leg-item"><div class="leg-line" style="background:#a3e635;"></div>Combo B</div>
+      <div class="leg-item"><div class="leg-line" style="background:#2dd4bf;"></div>Combo C</div>
+      <div class="leg-item"><div class="leg-line" style="background:#f87171;"></div>Combo D</div>
+      <div class="leg-item"><div class="leg-line" style="border-top:2px dashed #e879f9;background:none;"></div>Sag</div>
+      <div class="leg-item"><div class="leg-line" style="border-top:2px dashed #fbbf24;background:none;"></div>Peak</div>
+    </div>
+
+    <div class="shared-card">
+      <div class="shared-title">Graph Controls</div>
+      <div class="row"><label>X-axis max travel</label><span id="v-xmax">200 mm</span></div>
+      <input type="range" id="xmax" min="150" max="200" value="200" step="1">
+
+      <!-- Sag + Peak -->
+      <div class="sag-panel" style="margin-top:10px;">
+        <div class="split-title">Sag &amp; Peak Force</div>
+        <div class="g2" style="margin-top:4px;">
+          <div class="input-group">
+            <label style="font-size:0.67rem;color:var(--muted);">Sag %</label>
+            <input type="number" id="sag_pct" value="25" min="1" max="99" step="0.5">
+            <div class="input-hint">% of X-axis range</div>
+          </div>
+          <div class="input-group">
+            <label style="font-size:0.67rem;color:var(--muted);">Peak Force Disp. (mm)</label>
+            <input type="number" id="peak_mm" value="180" min="0" max="200" step="1">
+            <div class="input-hint">horizontal force line</div>
+          </div>
+        </div>
+        <div class="sag-grid" style="margin-top:8px;grid-template-columns:1fr 1fr 1fr 1fr;">
+          <div class="sag-out"><div class="sag-out-label">Sag displacement</div><div class="sag-out-val" id="sag_disp_out" style="color:#e879f9;">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force A @ sag</div><div class="sag-out-val" style="color:#3b82f6;" id="sag_fA_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force B @ sag</div><div class="sag-out-val bc" id="sag_fB_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force C @ sag</div><div class="sag-out-val cc" id="sag_fC_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force D @ sag</div><div class="sag-out-val dc" id="sag_fD_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force A @ peak</div><div class="sag-out-val" style="color:#3b82f6;" id="peak_fA_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force B @ peak</div><div class="sag-out-val bc" id="peak_fB_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force C @ peak</div><div class="sag-out-val cc" id="peak_fC_out">—</div></div>
+          <div class="sag-out"><div class="sag-out-label">Force D @ peak</div><div class="sag-out-val dc" id="peak_fD_out">—</div></div>
+        </div>
+      </div>
+
+      <!-- Deflection splits -->
+      <div class="split-panel">
+        <div class="split-title">Deflection Split at Probe Load</div>
+        <div class="probe-row">
+          <label>Force</label>
+          <input type="range" id="probe" min="0" max="500" value="80" step="1" style="flex:1;margin-top:0;">
+          <span class="probe-force" id="probe-val">80 lb</span>
+        </div>
+
+        <div class="sub-section">Combo A</div>
+        <div class="split-row"><div class="split-label a1">A1</div><div class="split-bar-bg"><div class="split-bar" id="a_bar1" style="background:#60a5fa;width:50%;"></div></div><div class="split-val a1" id="a_def1">—</div></div>
+        <div class="split-row"><div class="split-label a2">A2</div><div class="split-bar-bg"><div class="split-bar" id="a_bar2" style="background:#f472b6;width:50%;"></div></div><div class="split-val a2" id="a_def2">—</div></div>
+        <div class="split-row" style="margin-bottom:8px;"><div class="split-label ac">Total A</div><div class="split-bar-bg"><div class="split-bar" id="a_barc" style="background:#34d399;width:100%;"></div></div><div class="split-val ac" id="a_defc">—</div></div>
+        <div class="warn" id="a_warn1">⚠️ A1 at coil-bind</div>
+        <div class="warn" id="a_warn2">⚠️ A2 at coil-bind</div>
+
+        <div class="sub-section">Combo B</div>
+        <div class="split-row"><div class="split-label b1">B1</div><div class="split-bar-bg"><div class="split-bar" id="b_bar1" style="background:#fb923c;width:50%;"></div></div><div class="split-val b1" id="b_def1">—</div></div>
+        <div class="split-row"><div class="split-label b2">B2</div><div class="split-bar-bg"><div class="split-bar" id="b_bar2" style="background:#a78bfa;width:50%;"></div></div><div class="split-val b2" id="b_def2">—</div></div>
+        <div class="split-row" style="margin-bottom:8px;"><div class="split-label bc">Total B</div><div class="split-bar-bg"><div class="split-bar" id="b_barc" style="background:#a3e635;width:100%;"></div></div><div class="split-val bc" id="b_defc">—</div></div>
+        <div class="warn" id="b_warn1">⚠️ B1 at coil-bind</div>
+        <div class="warn" id="b_warn2">⚠️ B2 at coil-bind</div>
+
+        <div class="sub-section">Combo C (single)</div>
+        <div class="split-row" style="margin-bottom:8px;"><div class="split-label cc">C</div><div class="split-bar-bg"><div class="split-bar" id="c_bar" style="background:#2dd4bf;width:50%;"></div></div><div class="split-val cc" id="c_def">—</div></div>
+        <div class="warn" id="c_warn">⚠️ C at coil-bind</div>
+
+        <div class="sub-section">Combo D (single)</div>
+        <div class="split-row" style="margin-bottom:0;"><div class="split-label dc">D</div><div class="split-bar-bg"><div class="split-bar" id="d_bar" style="background:#f87171;width:50%;"></div></div><div class="split-val dc" id="d_def">—</div></div>
+        <div class="warn" id="d_warn">⚠️ D at coil-bind</div>
+      </div>
+
+      <div class="formula-note" style="margin-top:10px;">k = (G·d⁴)/(8·D³·n) &nbsp;|&nbsp; G = 11,500,000 psi (chrome-silicon) &nbsp;|&nbsp; D = ID + d</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Popout overlay - must exist in the DOM before the script below runs,
+     since that script grabs these elements and attaches listeners synchronously. -->
+<div class="popout-overlay" id="popout-overlay">
+  <div class="popout-window">
+    <div class="popout-header">
+      <span class="popout-title">Spring Curve — Expanded View</span>
+      <button class="btn-close" id="btn-close-popout">×</button>
+    </div>
+    <div id="popout-canvas-wrap">
+      <canvas id="popout-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('chart');
+const ctx    = canvas.getContext('2d');
+
+// activeCtx/activeCanvas set after popout logic initialises below
+let activeCtx    = ctx;
+let activeCanvas = canvas;
+
+const G_PSI  = 11_500_000;
+const mmToIn = mm => mm / 25.4;
+const inToMm = i  => i * 25.4;
+
+function computeRate(wd_mm, sid_mm, nc) {
+  const d = mmToIn(wd_mm), D = mmToIn(sid_mm + wd_mm);
+  if (D<=0||nc<=0||d<=0) return 0;
+  return (G_PSI * Math.pow(d,4)) / (8 * Math.pow(D,3) * nc);
+}
+
+// Read dual-combo inputs
+function readCombo(p) {
+  const fl1  = Math.max(10,  parseFloat(document.getElementById(p+'fl1').value)  || 175);
+  const nc1  = Math.max(1,   parseFloat(document.getElementById(p+'nc1').value)  || 10);
+  const wd1  = Math.max(0.5, parseFloat(document.getElementById(p+'wd1').value)  || 8);
+  const sid1 = Math.max(5,   parseFloat(document.getElementById(p+'sid1').value) || 50);
+  const pp1  = Math.max(0,   parseFloat(document.getElementById(p+'p1').value)   || 0);
+  const fl2  = Math.max(10,  parseFloat(document.getElementById(p+'fl2').value)  || 175);
+  const nc2  = Math.max(1,   parseFloat(document.getElementById(p+'nc2').value)  || 10);
+  const wd2  = Math.max(0.5, parseFloat(document.getElementById(p+'wd2').value)  || 8);
+  const sid2 = Math.max(5,   parseFloat(document.getElementById(p+'sid2').value) || 50);
+  const pp2  = Math.max(0,   parseFloat(document.getElementById(p+'p2').value)   || 0);
+  const k1=computeRate(wd1,sid1,nc1), k2=computeRate(wd2,sid2,nc2);
+  const cb1_mm=wd1*(nc1+2), cb2_mm=wd2*(nc2+2);
+  const travel1_mm=Math.max(0,fl1-cb1_mm), travel2_mm=Math.max(0,fl2-cb2_mm);
+  return {k1,k2,p1:pp1,p2:pp2,fl1,fl2,cb1_mm,cb2_mm,travel1_mm,travel2_mm,
+    t1_in:mmToIn(travel1_mm),t2_in:mmToIn(travel2_mm)};
+}
+
+// Read single-spring combo (C or D)
+function readSingle(p) {
+  const fl  = Math.max(10,  parseFloat(document.getElementById(p+'fl').value)  || 200);
+  const nc  = Math.max(1,   parseFloat(document.getElementById(p+'nc').value)  || 9);
+  const wd  = Math.max(0.5, parseFloat(document.getElementById(p+'wd').value)  || 9);
+  const sid = Math.max(5,   parseFloat(document.getElementById(p+'sid').value) || 50);
+  const pr  = Math.max(0,   parseFloat(document.getElementById(p+'p').value)   || 0);
+  const k   = computeRate(wd, sid, nc);
+  const cb_mm     = wd*(nc+2);
+  const travel_mm = Math.max(0, fl - cb_mm);
+  return {k, p:pr, fl, nc, wd, sid, cb_mm, travel_mm, t_in: mmToIn(travel_mm)};
+}
+
+function calcPhases(v, ks) {
+  const Fbind1=v.k1*v.t1_in, Fbind2=v.k2*v.t2_in;
+  const s1first=Fbind1<=Fbind2;
+  const F_kink=s1first?Fbind1:Fbind2, k_surv=s1first?v.k2:v.k1;
+  const t_surv_in=s1first?v.t2_in:v.t1_in;
+  const x_kink_in=F_kink/ks;
+  const surv_at_kink=F_kink/k_surv, surv_remain=t_surv_in-surv_at_kink;
+  const x_solid_in=x_kink_in+surv_remain;
+  return {Fbind1,Fbind2,s1first,F_kink,k_surv,x_kink_in,surv_remain,x_solid_in};
+}
+
+function seriesForce(x_mm, ks, ph) {
+  const x_in=mmToIn(x_mm);
+  if(x_in<=0) return 0;
+  if(x_in<=ph.x_kink_in) return ks*x_in;
+  if(x_in<=ph.x_solid_in) return ph.F_kink+ph.k_surv*(x_in-ph.x_kink_in);
+  return null;
+}
+
+// Force for single spring at given displacement
+function singleForce(x_mm, vc) {
+  const x_in=mmToIn(x_mm);
+  if(x_in<=0) return 0;
+  if(x_in<=vc.t_in) return vc.p + vc.k*x_in;
+  return null;
+}
+
+function updateComboUI(pfx, v, ks, ph) {
+  const f=(n,d,u)=>isFinite(n)?n.toFixed(d)+' '+u:'—';
+  document.getElementById(pfx+'vk1').textContent=f(v.k1,1,'lb/in');
+  document.getElementById(pfx+'vk2').textContent=f(v.k2,1,'lb/in');
+  document.getElementById(pfx+'cb1').textContent=f(v.cb1_mm,1,'mm');
+  document.getElementById(pfx+'mt1').textContent=f(v.travel1_mm,1,'mm');
+  document.getElementById(pfx+'mf1').textContent=f(ph.Fbind1,0,'lb');
+  document.getElementById(pfx+'cb2').textContent=f(v.cb2_mm,1,'mm');
+  document.getElementById(pfx+'mt2').textContent=f(v.travel2_mm,1,'mm');
+  document.getElementById(pfx+'mf2').textContent=f(ph.Fbind2,0,'lb');
+  document.getElementById(pfx+'ks').textContent=f(ks,2,'lb/in');
+  document.getElementById(pfx+'fl_tot').textContent=f(v.fl1+v.fl2,0,'mm');
+  document.getElementById(pfx+'t_tot').textContent=f(v.travel1_mm+v.travel2_mm,0,'mm');
+  const xk_mm=inToMm(ph.x_kink_in), bf=ph.s1first?1:2;
+  const tag=pfx==='a_'?'A':'B';
+  document.getElementById(pfx+'phase').innerHTML=
+    `<b>Spring ${tag}${bf}</b> binds first at <b>${ph.F_kink.toFixed(0)} lb / ${xk_mm.toFixed(1)} mm</b><br>`+
+    `Rate: <b>${ks.toFixed(1)} → ${ph.k_surv.toFixed(1)} lb/in</b>`;
+}
+
+function updateSingleUI(pfx, vc) {
+  const f=(n,d,u)=>isFinite(n)?n.toFixed(d)+' '+u:'—';
+  document.getElementById(pfx+'vk').textContent=f(vc.k,1,'lb/in');
+  document.getElementById(pfx+'cb').textContent=f(vc.cb_mm,1,'mm');
+  document.getElementById(pfx+'mt').textContent=f(vc.travel_mm,1,'mm');
+  document.getElementById(pfx+'mf').textContent=f(vc.k*vc.t_in,0,'lb');
+  document.getElementById(pfx+'ks').textContent=f(vc.k,1,'lb/in');
+  document.getElementById(pfx+'fl_out').textContent=f(vc.fl,0,'mm');
+  document.getElementById(pfx+'t_out').textContent=f(vc.travel_mm,1,'mm');
+  const tag=pfx==='c_'?'C':'D';
+  document.getElementById(pfx+'phase').textContent=
+    `Linear spring — coil-binds at ${(vc.k*vc.t_in).toFixed(0)} lb / ${vc.travel_mm.toFixed(1)} mm`;
+}
+
+function updateSplits(pfx, v, ph, F) {
+  const s1b=F>=ph.Fbind1, s2b=F>=ph.Fbind2;
+  const d1=s1b?v.travel1_mm:inToMm(F/v.k1);
+  const d2=s2b?v.travel2_mm:inToMm(F/v.k2);
+  const dc=d1+d2, mb=Math.max(dc,1);
+  document.getElementById(pfx+'bar1').style.width=Math.min(100,(d1/mb)*100)+'%';
+  document.getElementById(pfx+'bar2').style.width=Math.min(100,(d2/mb)*100)+'%';
+  document.getElementById(pfx+'barc').style.width='100%';
+  document.getElementById(pfx+'def1').textContent=d1.toFixed(1)+' mm'+(s1b?' ✓':'');
+  document.getElementById(pfx+'def2').textContent=d2.toFixed(1)+' mm'+(s2b?' ✓':'');
+  document.getElementById(pfx+'defc').textContent=dc.toFixed(1)+' mm';
+  document.getElementById(pfx+'warn1').style.display=s1b?'block':'none';
+  document.getElementById(pfx+'warn2').style.display=s2b?'block':'none';
+}
+
+function updateSingleSplit(pfx, vc, F) {
+  const cbound = F >= vc.k*vc.t_in;
+  const d_mm = cbound ? vc.travel_mm : inToMm(F/vc.k);
+  const maxBar = Math.max(d_mm,1);
+  document.getElementById(pfx+'bar').style.width=Math.min(100,(d_mm/maxBar)*100)+'%';
+  document.getElementById(pfx+'def').textContent=d_mm.toFixed(1)+' mm'+(cbound?' ✓':'');
+  document.getElementById(pfx+'warn').style.display=cbound?'block':'none';
+}
+
+function draw() {
+  const vA=readCombo('a_'), vB=readCombo('b_'), vC=readSingle('c_'), vD=readSingle('d_');
+  if(vA.k1<=0||vA.k2<=0||vB.k1<=0||vB.k2<=0||vC.k<=0||vD.k<=0) return;
+
+  const ksA=1/(1/vA.k1+1/vA.k2), ksB=1/(1/vB.k1+1/vB.k2);
+  const phA=calcPhases(vA,ksA), phB=calcPhases(vB,ksB);
+
+  updateComboUI('a_',vA,ksA,phA);
+  updateComboUI('b_',vB,ksB,phB);
+  updateSingleUI('c_',vC);
+  updateSingleUI('d_',vD);
+
+  const probe  =+document.getElementById('probe').value;
+  const xmax_mm=+document.getElementById('xmax').value;
+  const sag_pct=Math.min(99,Math.max(1,parseFloat(document.getElementById('sag_pct').value)||25));
+  const peak_mm=Math.min(xmax_mm,Math.max(0,parseFloat(document.getElementById('peak_mm').value)||180));
+
+  document.getElementById('probe-val').textContent=probe+' lb';
+  document.getElementById('v-xmax').textContent=xmax_mm+' mm';
+
+  updateSplits('a_',vA,phA,probe);
+  updateSplits('b_',vB,phB,probe);
+  updateSingleSplit('c_',vC,probe);
+  updateSingleSplit('d_',vD,probe);
+
+  const sag_mm=(sag_pct/100)*xmax_mm;
+  const sag_fA=seriesForce(sag_mm,ksA,phA)??0;
+  const sag_fB=seriesForce(sag_mm,ksB,phB)??0;
+  const sag_fC=singleForce(sag_mm,vC)??0;
+  const sag_fD=singleForce(sag_mm,vD)??0;
+  const peak_fA=seriesForce(peak_mm,ksA,phA)??0;
+  const peak_fB=seriesForce(peak_mm,ksB,phB)??0;
+  const peak_fC=singleForce(peak_mm,vC)??0;
+  const peak_fD=singleForce(peak_mm,vD)??0;
+
+  document.getElementById('sag_disp_out').textContent=sag_mm.toFixed(1)+' mm ('+sag_pct+'%)';
+  document.getElementById('sag_fA_out').textContent=sag_fA.toFixed(0)+' lb';
+  document.getElementById('sag_fB_out').textContent=sag_fB.toFixed(0)+' lb';
+  document.getElementById('sag_fC_out').textContent=sag_fC.toFixed(0)+' lb';
+  document.getElementById('sag_fD_out').textContent=sag_fD.toFixed(0)+' lb';
+  document.getElementById('peak_fA_out').textContent=peak_fA.toFixed(0)+' lb';
+  document.getElementById('peak_fB_out').textContent=peak_fB.toFixed(0)+' lb';
+  document.getElementById('peak_fC_out').textContent=peak_fC.toFixed(0)+' lb';
+  document.getElementById('peak_fD_out').textContent=peak_fD.toFixed(0)+' lb';
+
+  // Build points
+  const N=1000; let ymax=10;
+  const pAc=[],pBc=[],pCc=[],pDc=[];
+
+  for(let i=0;i<=N;i++){
+    const x_mm=(i/N)*xmax_mm;
+    const fAc=seriesForce(x_mm,ksA,phA);
+    const fBc=seriesForce(x_mm,ksB,phB);
+    const fCc=singleForce(x_mm,vC);
+    const fDc=singleForce(x_mm,vD);
+    pAc.push({x:x_mm,f:fAc});
+    pBc.push({x:x_mm,f:fBc});
+    pCc.push({x:x_mm,f:fCc});
+    pDc.push({x:x_mm,f:fDc});
+    for(const f of [fAc,fBc,fCc,fDc]) if(f!=null) ymax=Math.max(ymax,f);
+  }
+  ymax=Math.max(ymax,probe,sag_fA,sag_fB,sag_fC,sag_fD,peak_fA,peak_fB,peak_fC,peak_fD);
+  ymax=Math.ceil(ymax*1.15/10)*10||100;
+
+  // Draw - use whichever canvas is active (inline or popout)
+  const C   = activeCanvas;
+  const xc  = activeCtx;
+  const DPR2 = window.devicePixelRatio || 2;
+  const W   = C.width  / DPR2;
+  const H   = C.height / DPR2;
+  const pad={l:72,r:28,t:28,b:52};
+  const pw=W-pad.l-pad.r, ph2=H-pad.t-pad.b;
+  const mx=x=>pad.l+(x/xmax_mm)*pw;
+  const my=f=>pad.t+ph2-(f/ymax)*ph2;
+
+  xc.clearRect(0,0,W,H);
+  xc.fillStyle='#1e2130';
+  xc.beginPath(); xc.roundRect(0,0,W,H,10); xc.fill();
+
+  // Grid
+  xc.strokeStyle='#252a3f'; xc.lineWidth=1;
+  for(let i=0;i<=10;i++){const gx=mx(i*xmax_mm/10);xc.beginPath();xc.moveTo(gx,pad.t);xc.lineTo(gx,pad.t+ph2);xc.stroke();}
+  for(let i=0;i<=6;i++){const gy=my(i*ymax/6);xc.beginPath();xc.moveTo(pad.l,gy);xc.lineTo(pad.l+pw,gy);xc.stroke();}
+
+  // Axes
+  xc.strokeStyle='#4b5563';xc.lineWidth=1.5;
+  xc.beginPath();xc.moveTo(pad.l,pad.t);xc.lineTo(pad.l,pad.t+ph2);xc.stroke();
+  xc.beginPath();xc.moveTo(pad.l,pad.t+ph2);xc.lineTo(pad.l+pw,pad.t+ph2);xc.stroke();
+
+  // Tick labels
+  xc.fillStyle='#6b7280';xc.font='12px system-ui';xc.textAlign='center';
+  for(let i=0;i<=10;i++) xc.fillText((i*xmax_mm/10).toFixed(0),mx(i*xmax_mm/10),pad.t+ph2+17);
+  xc.textAlign='right';
+  for(let i=0;i<=6;i++) xc.fillText(Math.round(i*ymax/6),pad.l-7,my(i*ymax/6)+4);
+  xc.fillStyle='#94a3b8';xc.font='13px system-ui';xc.textAlign='center';
+  xc.fillText('Displacement (mm)',pad.l+pw/2,H-8);
+  xc.save();xc.translate(14,pad.t+ph2/2);xc.rotate(-Math.PI/2);xc.fillText('Force (lb)',0,0);xc.restore();
+
+  // Sag line
+  if(sag_mm>0&&sag_mm<=xmax_mm){
+    xc.save();
+    xc.strokeStyle='#e879f9';xc.lineWidth=2;xc.setLineDash([6,4]);xc.globalAlpha=0.85;
+    xc.beginPath();xc.moveTo(mx(sag_mm),pad.t);xc.lineTo(mx(sag_mm),pad.t+ph2);xc.stroke();
+    xc.setLineDash([]);xc.globalAlpha=1;
+    xc.fillStyle='#e879f9';xc.font='bold 11px system-ui';xc.textAlign='center';
+    xc.fillText('sag '+sag_pct+'%',mx(sag_mm),pad.t+18);
+    xc.fillStyle='#d8b4fe';xc.font='10px system-ui';
+    xc.fillText(sag_mm.toFixed(1)+' mm',mx(sag_mm),pad.t+30);
+    const sagCombos=[[sag_fA,'#3b82f6','A'],[sag_fB,'#a3e635','B'],[sag_fC,'#2dd4bf','C'],[sag_fD,'#f87171','D']];
+    const usedY=[];
+    for(const [f,col,tag] of sagCombos){
+      if(f<=0||f>ymax) continue;
+      xc.fillStyle=col;xc.beginPath();xc.arc(mx(sag_mm),my(f),5,0,Math.PI*2);xc.fill();
+      let labelY=my(f)+4;
+      while(usedY.some(y=>Math.abs(y-labelY)<12)) labelY-=12;
+      usedY.push(labelY);
+      xc.fillStyle=col;xc.font='bold 10px system-ui';xc.textAlign='left';
+      xc.fillText(tag+': '+f.toFixed(0)+' lb',mx(sag_mm)+8,labelY);
+    }
+    xc.restore();
+  }
+
+  // Peak force line
+  const peakF=Math.max(peak_fA,peak_fB,peak_fC,peak_fD);
+  if(peak_mm>0&&peakF>0&&peakF<=ymax){
+    xc.save();
+    xc.strokeStyle='#fbbf24';xc.lineWidth=1.5;xc.setLineDash([7,4]);xc.globalAlpha=0.8;
+    xc.beginPath();xc.moveTo(pad.l,my(peakF));xc.lineTo(pad.l+pw,my(peakF));xc.stroke();
+    xc.setLineDash([]);xc.globalAlpha=1;
+    xc.fillStyle='#fbbf24';xc.font='bold 10px system-ui';xc.textAlign='right';
+    xc.fillText('peak @ '+peak_mm+' mm',pad.l+pw-4,my(peakF)-5);
+    const peakCombos=[[peak_fA,'#3b82f6','A'],[peak_fB,'#a3e635','B'],[peak_fC,'#2dd4bf','C'],[peak_fD,'#f87171','D']];
+    const usedY=[];
+    for(const [f,col,tag] of peakCombos){
+      if(f<=0||f>ymax) continue;
+      xc.fillStyle=col;xc.beginPath();xc.arc(mx(peak_mm),my(f),5,0,Math.PI*2);xc.fill();
+      let labelY=my(f)+4;
+      while(usedY.some(y=>Math.abs(y-labelY)<12)) labelY-=12;
+      usedY.push(labelY);
+      xc.fillStyle=col;xc.font='bold 10px system-ui';xc.textAlign='left';
+      xc.fillText(tag+': '+f.toFixed(0)+' lb',mx(peak_mm)+8,labelY);
+    }
+    xc.restore();
+  }
+
+  // Probe line
+  if(probe>0&&probe<=ymax){
+    xc.save();
+    xc.strokeStyle='#475569';xc.lineWidth=1;xc.setLineDash([4,4]);xc.globalAlpha=0.5;
+    xc.beginPath();xc.moveTo(pad.l,my(probe));xc.lineTo(pad.l+pw,my(probe));xc.stroke();
+    xc.setLineDash([]);xc.globalAlpha=1;
+    xc.fillStyle='#64748b';xc.font='10px system-ui';xc.textAlign='right';
+    xc.fillText('probe '+probe+' lb',pad.l+pw-4,my(probe)-4);
+    for(const [pts,col] of [[pAc,'#3b82f6'],[pBc,'#a3e635'],[pCc,'#2dd4bf'],[pDc,'#f87171']]){
+      const hit=pts.find(p=>p.f!=null&&p.f>=probe);
+      if(hit){xc.fillStyle=col;xc.beginPath();xc.arc(mx(hit.x),my(hit.f),4,0,Math.PI*2);xc.fill();}
+    }
+    xc.restore();
+  }
+
+  // Kink dots for A and B
+  function kinkDot(ph,color){
+    const xk=inToMm(ph.x_kink_in),fk=ph.F_kink;
+    if(xk>xmax_mm||fk>ymax) return;
+    xc.save();
+    xc.fillStyle='#1e2130';xc.strokeStyle=color;xc.lineWidth=2;
+    xc.beginPath();xc.arc(mx(xk),my(fk),5,0,Math.PI*2);xc.fill();xc.stroke();
+    xc.restore();
+  }
+  kinkDot(phA,'#3b82f6');
+  kinkDot(phB,'#a3e635');
+
+  // Draw curves
+  function drawCurve(pts,color,lw){
+    xc.strokeStyle=color;xc.lineWidth=lw;xc.setLineDash([]);
+    xc.beginPath();let s=false;
+    for(const p of pts){
+      if(p.f==null){s=false;continue;}
+      if(!s){xc.moveTo(mx(p.x),my(p.f));s=true;}
+      else xc.lineTo(mx(p.x),my(p.f));
+    }
+    xc.stroke();
+  }
+  drawCurve(pAc,'#3b82f6',2.5);
+  drawCurve(pBc,'#a3e635',2.5);
+  drawCurve(pCc,'#2dd4bf',2.5);
+  drawCurve(pDc,'#f87171',2.5);
+
+  // Annotate end of curves
+  function annotate(pts,color,text){
+    const last=pts.filter(p=>p.f!=null).pop();
+    if(!last) return;
+    xc.fillStyle=color;xc.font='bold 10px system-ui';xc.textAlign='left';
+    xc.fillText(text,Math.min(mx(last.x)+4,pad.l+pw-120),my(last.f)-5);
+  }
+  annotate(pAc,'#3b82f6','A→'+phA.k_surv.toFixed(1)+' lb/in');
+  annotate(pBc,'#a3e635','B→'+phB.k_surv.toFixed(1)+' lb/in');
+  annotate(pCc,'#2dd4bf','C: '+vC.k.toFixed(1)+' lb/in');
+  annotate(pDc,'#f87171','D: '+vD.k.toFixed(1)+' lb/in');
+}
+
+const allIds=[
+  'a_fl1','a_nc1','a_wd1','a_sid1','a_p1',
+  'a_fl2','a_nc2','a_wd2','a_sid2','a_p2',
+  'b_fl1','b_nc1','b_wd1','b_sid1','b_p1',
+  'b_fl2','b_nc2','b_wd2','b_sid2','b_p2',
+  'c_fl','c_nc','c_wd','c_sid','c_p',
+  'd_fl','d_nc','d_wd','d_sid','d_p',
+  'probe','xmax','sag_pct','peak_mm'
+];
+allIds.forEach(id=>document.getElementById(id).addEventListener('input',draw));
+
+// ---- Canvas resize helper ----
+// Sizes a canvas to w x h CSS pixels at device pixel ratio for crispness,
+// then restores the DPR scale transform so draw() works in logical coords.
+function resizeCanvas(c, w, h) {
+  const dpr = window.devicePixelRatio || 2;
+  c.style.width  = w + 'px';
+  c.style.height = h + 'px';
+  c.width  = Math.round(w * dpr);
+  c.height = Math.round(h * dpr);
+  c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// ---- Inline canvas: size to container, redraw on resize ----
+const canvasWrap = document.getElementById('canvas-wrap');
+function sizeInlineCanvas() {
+  const w = canvasWrap.clientWidth  || 680;
+  const h = canvasWrap.clientHeight || Math.round(w * 0.76);
+  resizeCanvas(canvas, w, h);
+}
+sizeInlineCanvas();
+
+new ResizeObserver(() => {
+  if (activeCanvas === canvas) { sizeInlineCanvas(); draw(); }
+}).observe(canvasWrap);
+
+// ---- Popout ----
+const overlay      = document.getElementById('popout-overlay');
+const popoutWrap   = document.getElementById('popout-canvas-wrap');
+const popoutCanvas = document.getElementById('popout-canvas');
+
+function sizePopoutCanvas() {
+  const w = popoutWrap.clientWidth  || Math.round(window.innerWidth  * 0.86);
+  const h = popoutWrap.clientHeight || Math.round(window.innerHeight * 0.76);
+  resizeCanvas(popoutCanvas, w, h);
+}
+
+document.getElementById('btn-popout').addEventListener('click', () => {
+  overlay.classList.add('active');
+  // Let the overlay render so clientWidth is non-zero, then size + draw
+  requestAnimationFrame(() => {
+    sizePopoutCanvas();
+    activeCanvas = popoutCanvas;
+    activeCtx    = popoutCanvas.getContext('2d');
+    draw();
+  });
+});
+
+function closePopout() {
+  overlay.classList.remove('active');
+  activeCanvas = canvas;
+  activeCtx    = ctx;
+  draw();
+}
+document.getElementById('btn-close-popout').addEventListener('click', closePopout);
+overlay.addEventListener('click', e => { if (e.target === overlay) closePopout(); });
+
+new ResizeObserver(() => {
+  if (activeCanvas !== popoutCanvas) return;
+  sizePopoutCanvas();
+  activeCtx = popoutCanvas.getContext('2d');
+  draw();
+}).observe(popoutWrap);
+
+// ---- Initial draw ----
+draw();
+</script>
+
+<script src="theme.js"></script>
+</body>
+</html>

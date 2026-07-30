@@ -9,6 +9,8 @@ import {
   valveArea,
   pressurizedArea,
   solveForceAtVelocity,
+  deltaCoverage,
+  DELTA_MIN_COV,
 } from '../js/physics.js';
 
 describe('interpArr', () => {
@@ -30,6 +32,31 @@ describe('interpArr', () => {
 
   test('interpolates within the correct segment of a multi-point table', () => {
     assert.equal(interpArr([0, 5, 10], [0, 50, 200], 7.5), 125);
+  });
+});
+
+describe('deltaCoverage', () => {
+  test('is a full disc (coverage 1) at and inside the inradius (R/2)', () => {
+    assert.equal(deltaCoverage(20, 10), 1); // r == inradius exactly
+    assert.equal(deltaCoverage(20, 4), 1); // well inside
+  });
+
+  test('hits the floor at and beyond the outer radius', () => {
+    assert.equal(deltaCoverage(20, 20), DELTA_MIN_COV);
+    assert.equal(deltaCoverage(20, 30), DELTA_MIN_COV);
+  });
+
+  test('matches the exact geometric formula partway between inradius and OD', () => {
+    // R=20, r=15 (0.75*R): c = R/(2r) = 2/3, coverage = 1 - 3*acos(2/3)/pi
+    const expected = 1 - (3 * Math.acos(2 / 3)) / Math.PI;
+    assert.ok(Math.abs(deltaCoverage(20, 15) - expected) < 1e-12);
+    assert.ok(expected > 0.19 && expected < 0.2); // ~0.1967 - sanity-check the constant itself
+  });
+
+  test('is strictly decreasing from the inradius out to the OD', () => {
+    const rs = [10, 12, 14, 16, 18, 20];
+    const covs = rs.map((r) => deltaCoverage(20, r));
+    for (let i = 1; i < covs.length; i++) assert.ok(covs[i] < covs[i - 1]);
   });
 });
 
@@ -162,6 +189,37 @@ describe('buildStack', () => {
       nSeg: 40,
     });
     assert.ok(two.yAtLoad(50) < one.yAtLoad(50));
+  });
+
+  test('a delta/triangle shim is softer than a full round shim of the same OD and thickness', () => {
+    const round = buildStack([{ count: 1, diam: 20, thickness: 0.5, float: 0, type: 'round' }], geom, mech, {
+      Fmax: 100,
+      nSteps: 40,
+      nSeg: 40,
+    });
+    const delta = buildStack([{ count: 1, diam: 20, thickness: 0.5, float: 0, type: 'deltaT' }], geom, mech, {
+      Fmax: 100,
+      nSteps: 40,
+      nSeg: 40,
+    });
+    assert.ok(delta.yAtLoad(50) > round.yAtLoad(50));
+  });
+
+  test('a delta shim behaves identically to a round one when the loaded span never exceeds its inradius', () => {
+    // diam 30 -> outer 15, inradius 7.5. rLoad here (rPort+dPort) is 7, so the whole
+    // modeled span sits inside the inradius, where deltaCoverage is defined to be
+    // exactly 1 - the two stacks should be indistinguishable, not just "close".
+    const round = buildStack([{ count: 1, diam: 30, thickness: 0.5, float: 0, type: 'round' }], geom, mech, {
+      Fmax: 100,
+      nSteps: 40,
+      nSeg: 40,
+    });
+    const delta = buildStack([{ count: 1, diam: 30, thickness: 0.5, float: 0, type: 'deltaT' }], geom, mech, {
+      Fmax: 100,
+      nSteps: 40,
+      nSeg: 40,
+    });
+    assert.ok(Math.abs(delta.yAtLoad(50) - round.yAtLoad(50)) < 1e-9);
   });
 
   test('a floating (Float > 0) row starts disengaged, then locks in and shows up in engageLog', () => {

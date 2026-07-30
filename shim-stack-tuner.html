@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shim Stack Tuner — Valving Toolbox</title>
+<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav class="sitenav">
+  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+  <div class="sitenav-links">
+    <a href="shim-stack-tuner.html" class="active">Shim Stack Tuner</a>
+    <a href="spring-calculator.html">Spring Curve Calculator</a>
+    <a href="shim-delta.html">Shim Delta Tool</a>
+    <a href="oil-viscosity.html">Oil Viscosity</a>
+    <a href="spring-damper-curve.html">Wheel Force</a>
+  </div>
+  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+</nav>
+<header>
+  <div class="wrap" style="padding:0;">
+    <h1>Shim Stack Tuner</h1>
+    <p>An independent, open, offline shim-stack &amp; damping-force calculator for shock/fork valving — inspired by the classic Shim ReStackor workflow. Runs entirely in your browser, no install, no internet needed.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="units-bar">
+    <strong>Quick-set all dimension fields:</strong>
+    <select id="bulkUnit">
+      <option value="" selected disabled>choose…</option>
+      <option value="mm">All metric — mm</option>
+      <option value="in">All imperial — in</option>
+    </select>
+    <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Every geometry &amp; shim field has its own mm/in dropdown, so you can mix parts from different manufacturers — a metric damper body with imperial shims, for example. This selector is just a bulk shortcut; individual fields always stay overridable.</p></div></details>
+    <button class="small" id="resetLayoutBtn" title="Restore default tile positions and expand all tiles">Reset layout</button>
+  </div>
+
+
+  <div id="warnBox" class="warn-box"></div>
+
+  <div class="dropcol" id="colMain">
+    <!-- MAIN WORKSPACE: everything you touch while iterating on a stack, together in one tile -->
+    <div class="panel" id="p-workspace">
+      <h2><span class="chev">▾</span>Shim stack &amp; damping force<span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+      <div class="workspace-grid">
+        <div class="workspace-col">
+          <div class="field" style="max-width:260px;"><label>Clamp diameter, D.clamp (where it bends from) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>The OD of the clamp washer / piston land that pins the stack — only the material outside this diameter flexes, so it's the true inner boundary of the bending model (marked on the live preview below). Make it larger to shorten the bending span (stiffer), smaller for a longer, softer span. It must be smaller than the largest shim OD and at least the shim ID (set in the setup tile).</p></div></details></label>
+            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="btnrow" style="margin-top:10px; align-items:center;">
+            <button class="small" id="addShimRowBtn">+ Add shim row</button>
+            <button class="small" id="loadExampleBtn">Load metric example</button>
+            <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
+            <details class="hint-details"><summary class="hint-bubble" aria-label="How to list shims">?</summary><div class="hint-popover"><p>List shims from the valve face outward — group identical shims using the Count column. Each row has its own unit, so a metric shim and an imported inch shim can sit in the same stack. Set a row to <b>Delta T</b> to model a three-lobed shim with less effective bending stiffness than an equivalent round disc. If your stack has a separate clamp washer and/or nut, add them as regular rows too.</p></div></details>
+          </div>
+          <p class="hint" id="stackHeightBox" style="margin:8px 0 4px;">Stack height: <b id="stackHeightVal">—</b><span id="stackHeightDelta"></span></p>
+          <div class="stack-table-wrap">
+            <table id="shimTable">
+              <thead><tr><th class="col-count">Count</th><th class="col-diam">Diameter</th><th class="col-dec">Thickness</th><th class="col-dec">Float<details class="hint-details" style="margin-left:4px"><summary class="hint-bubble" aria-label="What Float does">?</summary><div class="hint-popover"><p><b>Float</b> is normally 0 (shim always bonded/engaged, the default). Give a "backup" or crossover shim a Float &gt; 0 and it stays disengaged — contributing nothing — until the stack's local deflection right at that shim's own radius reaches the Float value, at which point it locks in and stiffens the stack from then on. That's what lets a stack be genuinely soft at low speed and stiffen at high speed (or vice versa), not just scaled up or down.</p></div></details></th><th style="width:80px">Type</th><th class="col-unit">Unit</th><th></th></tr></thead>
+              <tbody id="shimBody"></tbody>
+            </table>
+          </div>
+
+          <details class="diagram-box diagram-box-themed" open>
+            <summary>Live stack preview &amp; deflection animation — updates as you edit</summary>
+            <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face stiffen the stack most, since fluid pressure loads the outer edge near the port.</p></div></details>
+            <canvas id="stackCanvas" style="height:260px"></canvas>
+            <div class="slider-row">
+              <label style="min-width:140px; margin:0; font-size:12px;">Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label>
+              <input type="range" id="forceSlider" min="0" max="400" step="1" value="0">
+            </div>
+          </details>
+        </div>
+
+        <div class="workspace-col">
+          <div class="btnrow" style="align-items:center; margin-top:0;">
+            <details class="hint-details"><summary class="hint-bubble" aria-label="About the chart, pins, and target curve">?</summary><div class="hint-popover"><p>Fix the force (Y) axis min/max and/or the shaft-speed (X) axis max to keep the scale constant while you tune, so changes read as real movement instead of the chart rescaling — handy for zooming into the low-speed region. <b>Click any line's legend entry to hide/show it.</b> Pin the current curve before editing to keep it on the chart for comparison. Turn on <b>Target curve</b> to lay a desired curve over the chart: the grey line is the stock tune you loaded (reference), the dashed magenta line is your target — drag its dots up or down to say what force you want at each speed. The readout shows how far the current stack is from that target; <b>Optimize to target</b> searches real FOX shims to close that gap. Pins, axis, and target are remembered between sessions.</p></div></details>
+            <label style="margin:0; font-size:12.5px;"><b>Force axis (Y)</b></label>
+            <select id="axisMode" style="width:auto;">
+              <option value="auto" selected>Auto-scale</option>
+              <option value="fixed">Fixed max</option>
+            </select>
+            <span id="axisMaxWrap" style="display:none;">
+              min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0">
+              max <input type="number" id="axisMaxF" style="width:90px;" step="50"> <span class="uforce">N</span>
+            </span>
+            <label style="margin:0 0 0 10px; font-size:12.5px;"><b>Speed axis (X)</b></label>
+            <select id="xAxisMode" style="width:auto;">
+              <option value="auto" selected>Auto-scale</option>
+              <option value="fixed">Fixed max</option>
+            </select>
+            <span id="xAxisMaxWrap" style="display:none;">
+              max <input type="number" id="axisMaxU" style="width:90px;" step="100"> <span class="uvel">mm/s</span>
+            </span>
+          </div>
+          <div class="btnrow" style="align-items:center; margin-top:6px;">
+            <input type="text" id="pinName" placeholder="curve label (optional)" style="width:150px;">
+            <button class="small" id="pinCurveBtn">📌 Pin curve</button>
+            <button class="small danger" id="clearPinsBtn">Clear pinned</button>
+          </div>
+          <div id="pinList" style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;"></div>
+          <div class="btnrow" style="align-items:center; margin-top:0;">
+            <label class="live-toggle"><input type="checkbox" id="targetOn"> <b>Target curve</b></label>
+            <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Drag the dots to shape what you want.</p></div></details>
+            <button class="small" id="resetTargetBtn">Reset to current</button>
+            <button class="small danger" id="clearTargetBtn">Clear target</button>
+            <span style="flex:1"></span>
+            <span id="targetReadout" class="hint" style="margin:0;"></span>
+          </div>
+          <div class="btnrow" style="align-items:center; margin-top:6px;">
+            <button class="small primary" id="optBtn">🔍 Optimize to target</button>
+            <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
+            <span id="optStatus" class="hint" style="margin:0;"></span>
+          </div>
+          <div id="optResults" style="margin:6px 0;"></div>
+          <canvas id="forceCanvas"></canvas>
+          <div class="datatable-wrap">
+            <table id="resultsTable">
+              <thead><tr>
+                <th>Shaft velocity (m/s)</th>
+                <th>Shaft velocity (in/s)</th>
+                <th>Damping force (<span class="uforce">N</span>)</th>
+                <th>Damping coeff. (<span class="uforce">N</span>·s/<span class="ulen">mm</span>)</th>
+                <th>Reynolds #</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="p-geom">
+      <h2><span class="chev">▾</span>Damper &amp; valve setup <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Fill these in once per valve, then move on to the tuning tile above. Everything here is remembered per valve setup.</p></div></details><span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+
+        <div class="btnrow" style="align-items:center; margin-top:0;">
+          <select id="valveSetups" style="width:auto; min-width:150px;">
+            <option value="" selected disabled>saved valve setups…</option>
+          </select>
+          <input type="text" id="valveSetupName" placeholder="setup name" style="width:130px;">
+          <button class="small" id="saveValveSetupBtn">Save setup</button>
+          <button class="small danger" id="deleteValveSetupBtn">Delete</button>
+          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Save this panel's damper/valve dimensions (plus valve type) under a name and reload them any time — stored by your browser on this computer, nothing uploaded. Survives closing the file.</p></div></details>
+        </div>
+        <p class="hint" id="valveSetupHint"></p>
+
+        <div class="btnrow" style="align-items:center; gap:6px; margin-top:14px;">
+          <details class="hint-details"><summary class="hint-bubble" aria-label="How to load a stock tune">?</summary><div class="hint-popover"><p>Pick a <b>Product</b> → <b>Valve</b> → <b>Stock tune</b> to load a real FOX stack straight from the valve-stack drawings (all shims 0.252in ID, listed valve-face first; counts cross-checked against each drawing's stack-height dimension) into the shim table in the tuning tile below. Choosing a valve also sets its valve type and loads its saved (or default, approximate) port geometry — enter your measured piston/port dimensions below and press "Save this valve's geometry" to keep them.</p></div></details>
+          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Product</b></label>
+          <select id="prodSel" style="width:auto; min-width:210px;"></select>
+          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Valve</b></label>
+          <select id="valveSel" style="width:auto;"></select>
+          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Stock tune</b></label>
+          <select id="tuneSel" style="width:auto;"></select>
+        </div>
+        <div id="catalogLoadWarn" class="hint" style="display:none; color:var(--warn);"></div>
+        <div class="btnrow" style="align-items:center; gap:6px; margin-top:6px;">
+          <button class="small" id="saveValveGeomBtn">Save this valve's geometry</button>
+          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Choosing a valve above loads its saved (or default, approximate) port geometry into the Damper &amp; valve setup fields below. Enter your own measured D.rod, D.valve, r.port, d.port, w.port etc., then press this button to keep them — stored per product/valve in your browser, reloaded automatically next time you pick that same valve.</p></div></details>
+          <span class="hint" id="geomSaveHint" style="margin:0;"></span>
+        </div>
+        <p class="hint" id="presetNote"></p>
+        <details class="diagram-box" style="margin-top:6px;">
+          <summary>Usable shim catalog for this valve <span class="chip" id="catalogCount"></span></summary>
+          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Each button is one real FOX part (OD × thickness, inches) proven from a drawing, sharing this valve's ID and within its OD bounds — the pool the optimizer will draw from. Clicking adds one to the stack in size order; adjust count or position with the row controls in the tuning tile below. The list grows as more products/tunes are added; nothing outside it can be used.</p></div></details>
+          <p class="hint" id="catalogNote" style="margin:6px 2px;"></p>
+          <div id="catalogChips" style="display:flex; flex-wrap:wrap; gap:4px; margin:6px 2px;"></div>
+        </details>
+
+        <div class="diagram-row" style="margin-top:14px;">
+          <details class="diagram-box" open>
+            <summary>Reference diagram — what to measure</summary>
+            <div class="diagram-content">
+              <svg viewBox="0 0 340 250" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <marker id="ar1" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="#5b6472"/>
+                  </marker>
+                  <marker id="ar2" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="#2f6fed"/>
+                  </marker>
+                </defs>
+                <!-- shaft/rod, drawn full-height behind the piston/stack so it reads as passing through them - exits at the bottom -->
+                <rect x="155" y="10" width="30" height="230" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
+                <!-- compression retaining nut -->
+                <rect x="157" y="10" width="26" height="16" rx="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
+                <!-- compression shim stack, above the piston, tapering outward -->
+                <rect x="152" y="28" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="142" y="34" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="133" y="40" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="125" y="46" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="118" y="52" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="112" y="58" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <!-- piston / valve - D.valve is measured directly across it, not a separate bore outline -->
+                <rect x="110" y="64" width="120" height="26" rx="3" fill="#c7d6fb" stroke="#2f6fed" stroke-width="1.5"/>
+                <!-- flow ports through the piston -->
+                <rect x="130" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1"/>
+                <rect x="200" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1"/>
+                <!-- rebound shim stack, below the piston, tapering outward -->
+                <rect x="112" y="92" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="118" y="98" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="125" y="104" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="133" y="110" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="142" y="116" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <rect x="152" y="122" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
+                <!-- rebound retaining nut -->
+                <rect x="157" y="128" width="26" height="16" rx="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
+                <!-- D.rod dimension -->
+                <line x1="155" y1="200" x2="185" y2="200" stroke="#5b6472" stroke-width="1.5" marker-start="url(#ar1)" marker-end="url(#ar1)"/>
+                <!-- D.valve dimension, marked directly on the piston (not the bore) -->
+                <line x1="110" y1="77" x2="230" y2="77" stroke="#2f6fed" stroke-width="1.5" marker-start="url(#ar2)" marker-end="url(#ar2)"/>
+              </svg>
+              <ul class="diagram-legend">
+                <li><span class="legend-swatch" style="background:#5b6472"></span><b>D.rod</b> — shaft/rod diameter through the seal</li>
+                <li><span class="legend-swatch" style="background:#2f6fed"></span><b>D.valve</b> — outer diameter of the valve/piston</li>
+                <li>Shims above the piston = <b>compression</b>; below = <b>rebound</b>. Simplified, not to scale.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="diagram-box" open>
+            <summary>Live diagram — valve port face (updates as you edit)</summary>
+            <div class="diagram-content">
+              <canvas id="portFaceCanvas" class="port-face-canvas"></canvas>
+              <ul class="diagram-legend">
+                <li><span class="legend-swatch" style="background:#c0392b"></span><b>r.port</b> — center to the port's inner edge</li>
+                <li><span class="legend-swatch" style="background:#0f9d58"></span><b>d.port</b> — port's radial depth</li>
+                <li><span class="legend-swatch" style="background:#2f6fed"></span><b>w.port</b> — port's width at the outer edge</li>
+                <li><span class="legend-swatch" style="background:#5b6472"></span><b>shaft</b> — D.rod bore</li>
+                <li id="portFaceCount" style="margin-top:6px;"></li>
+                <li id="portFaceNote" class="legend-note" style="display:none;"></li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <div class="checklist">
+          <div class="field"><label>1. Rod diameter D.rod</label>
+            <div class="unitpair"><input type="number" id="dRod" value="16" step="0.1"><select class="fieldUnit" data-for="dRod" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>2. Valve/body diameter D.valve</label>
+            <div class="unitpair"><input type="number" id="dValve" value="50" step="0.1"><select class="fieldUnit" data-for="dValve" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>3. Valve type</label>
+            <select id="valveType">
+              <option value="base">Base valve / compression adjuster</option>
+              <option value="mainComp" selected>Main / mid-valve — compression</option>
+              <option value="mainRebound">Main / mid-valve — rebound</option>
+            </select>
+          </div>
+          <div class="field"><label>4. Shim ID, D.hole (hole for the shaft/post) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>The <b>shim ID</b> is just the center hole (must clear the shaft). Clamp diameter — the other half of the bending model — has moved to the tuning tile above, next to the shim table it directly affects.</p></div></details></label>
+            <div class="unitpair"><input type="number" id="stackID" value="12" step="0.1"><select class="fieldUnit" data-for="stackID" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+        </div>
+
+        <details class="diagram-box">
+          <summary>📷 Estimate r.port / d.port / w.port from a photo</summary>
+          <details class="hint-details"><summary class="hint-bubble" aria-label="How to use the photo tool">?</summary><div class="hint-popover"><p>Upload a straight-on photo of the valve face. Click <b>3 points anywhere along the valve's outer edge</b> to set the scale from your D.valve value above — any 3 points on the rim will do, no need to find the center or opposite points. Then click all the way around <b>one port's actual boundary</b> — as many points as you like, rounded/kidney/D-shaped ports are fine — and press "Finish this port". Trace a couple more ports for a more reliable average, or just note how many more you can see. Each click snaps to the nearest sharp edge in the photo automatically. Works best on a reasonably straight-on shot; a steep angle will skew the numbers.</p></div></details>
+          <input type="file" id="photoFile" accept="image/*">
+          <label class="live-toggle" style="margin-top:6px;"><input type="checkbox" id="photoSnapToggle" checked> 🧲 Snap clicks to the nearest edge</label>
+          <canvas id="photoCanvas" style="height:360px; cursor:crosshair; display:none;"></canvas>
+          <p class="hint" id="photoStepHint" style="margin-top:6px;">Choose a photo to begin.</p>
+          <div class="btnrow" style="margin-top:6px;">
+            <button class="small" id="photoUndoBtn" type="button" disabled>Undo last point</button>
+            <button class="small" id="photoFinishPortBtn" type="button" disabled>Finish this port ✓</button>
+            <button class="small danger" id="photoResetBtn" type="button" disabled>Start over</button>
+          </div>
+          <p class="hint" id="photoPortsHint"></p>
+          <div class="field" style="max-width:280px; margin-top:6px;">
+            <label>Other ports visible but not traced (assumed identical)</label>
+            <input type="number" id="photoOtherPorts" value="0" min="0" step="1">
+          </div>
+          <div class="btnrow" style="margin-top:6px; align-items:center;">
+            <button class="small primary" id="photoApplyBtn" type="button" disabled>Apply to r.port / d.port / w.port</button>
+            <label class="live-toggle"><input type="checkbox" id="photoApplyNPort" checked> also set N.port</label>
+          </div>
+        </details>
+
+        <div class="checklist">
+          <div class="field"><label>5. r.port, port inner radius <details class="hint-details"><summary class="hint-bubble" aria-label="Where these names come from">?</summary><div class="hint-popover"><p>These match the D.rod / D.valve / r.port / d.port / w.port / N.port / d.thrt / N.thrt names used in the original Shim ReStackor manual, so you can copy values straight across if you have them.</p></div></details></label>
+            <div class="unitpair"><input type="number" id="rPort" value="10.5" step="0.1"><select class="fieldUnit" data-for="rPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>6. d.port, port radial length</label>
+            <div class="unitpair"><input type="number" id="dPort" value="9" step="0.1"><select class="fieldUnit" data-for="dPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>7. w.port, port perimeter width</label>
+            <div class="unitpair"><input type="number" id="wPort" value="12" step="0.1"><select class="fieldUnit" data-for="wPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>8. N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1"></div>
+          <div class="field"><label>9. d.thrt, throat dia — 0 = none</label>
+            <div class="unitpair"><input type="number" id="dThrt" value="0" step="0.1"><select class="fieldUnit" data-for="dThrt" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
+          </div>
+          <div class="field"><label>10. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
+        </div>
+    </div>
+
+    <div class="panel" id="p-advanced">
+      <h2><span class="chev">▾</span>Oil, shim material &amp; calculation settings <span class="chip">advanced</span> <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Collapsed by default — reasonable defaults are already loaded. Expand to dial in your actual oil and shim spec, calculation range, or to save/load a config file.</p></div></details><span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
+        <div class="field">
+          <label>Viscosity input mode</label>
+          <select id="viscMode">
+            <option value="direct">Direct — cSt @40°C / @100°C</option>
+            <option value="iso">ISO VG grade</option>
+            <option value="sae">SAE shock-oil weight (approx.)</option>
+          </select>
+        </div>
+        <div class="row2" id="viscDirectFields">
+          <div class="field"><label>cSt @ 40°C</label><input type="number" id="cst40" value="30" step="0.1"></div>
+          <div class="field"><label>cSt @ 100°C</label><input type="number" id="cst100" value="6" step="0.1"></div>
+        </div>
+        <div class="row2" id="viscIsoFields" style="display:none">
+          <div class="field"><label>ISO VG grade <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>cSt@40 = the VG number itself, by definition. cSt@100 is estimated for a typical VI≈100 mineral oil.</p></div></details></label><input type="number" id="isoVG" value="32" step="1"></div>
+        </div>
+        <div class="row2" id="viscSaeFields" style="display:none">
+          <div class="field"><label>SAE shock-oil weight <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Rough average fit — SAE shock-oil weight isn't a strict standard and varies a lot between brands (see About panel).</p></div></details></label><input type="number" id="saeWt" value="5" step="0.5"></div>
+        </div>
+        <p class="hint" id="viscResultHint"></p>
+        <div class="row4">
+          <div class="field"><label>Oil density (kg/m³) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Oil density is always kg/m³ — it isn't a shim/geometry dimension so it's not affected by the dimension unit selectors.</p></div></details></label><input type="number" id="rho" value="850" step="1"></div>
+          <div class="field"><label>Oil temperature (°C)</label><input type="number" id="oilTemp" value="40" step="1"></div>
+          <div class="field"><label>Discharge coeff. Cd</label><input type="number" id="cd" value="0.65" step="0.01"></div>
+          <div class="field"><label>Viscous cutoff Re₀ <span class="chip">advanced</span></label><input type="number" id="re0" value="10" step="1"></div>
+        </div>
+        <div class="row2" style="margin-top:10px;">
+          <div class="field"><label>Shim modulus E</label>
+            <div class="unitpair"><input type="number" id="eMod" value="205000" step="1000"><select class="modUnit" data-for="eMod" data-unit="MPa"><option value="MPa">MPa</option><option value="psi">psi</option></select></div>
+          </div>
+          <div class="field"><label>Poisson ratio ν</label><input type="number" id="nu" value="0.3" step="0.01"></div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Results &amp; range units</label>
+          <select id="resultUnit">
+            <option value="mm">Metric — N, mm/s</option>
+            <option value="in">Imperial — lbf, in/s</option>
+          </select>
+        </div>
+        <div class="row3">
+          <div class="field"><label>Max stack force, F.stack (<span class="uforce">N</span>)</label><input type="number" id="fMax" value="400" step="1"></div>
+          <div class="field"><label>Max shaft velocity, u.wheel (<span class="uvel">mm/s</span>)</label><input type="number" id="uMax" value="8000" step="1"></div>
+          <div class="field"><label># velocity points</label><input type="number" id="nPts" value="26" step="1"></div>
+        </div>
+        <div class="btnrow">
+          <button class="primary" id="recalcBtn" style="display:none">▶ Recalculate</button>
+          <button id="saveConfigBtn">Save config…</button>
+          <button id="loadConfigTriggerBtn">Load config…</button>
+          <input type="file" id="loadFile" accept=".json" style="display:none">
+          <button id="exportCSVBtn">Export CSV</button>
+        </div>
+        <div class="live-row">
+          <label class="live-toggle"><input type="checkbox" id="liveMode" checked> Live update — recalculate automatically as I type</label>
+          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Everything recalculates automatically as you edit. If you're working on a slow device or making many edits at once, untick Live update — a Recalculate button appears in its place.</p></div></details>
+          <span id="liveStatus" class="live-status"></span>
+        </div>
+    </div>
+  </div>
+</div>
+
+<footer>Shim Stack Tuner — independent open-source style tool, offline &amp; self-contained. Not affiliated with any commercial suspension-valving software.</footer>
+
+<script src="theme.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

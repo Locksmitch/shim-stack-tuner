@@ -1,0 +1,222 @@
+/* =========================================================
+   SHARED SITE THEME — variables + light/dark palettes + the
+   top nav bar used by every tool page. Each tool keeps its own
+   page-specific styles (styles.css, or an inline <style> block)
+   but should reference these variables for chrome/text/surface
+   colors so the light/dark toggle applies everywhere at once.
+   ========================================================= */
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --panel2: #fbfcfe;
+  --ink: #1c2430;
+  --muted: #5b6472;
+  --muted2: #8a93a3;
+  --line: #dde1e6;
+  --accent: #2f6fed;
+  --accent2: #0f9d58;
+  --warn: #c0392b;
+  --chip: #eef2ff;
+  --warn-bg: #fdecea;
+  --warn-border: #f3c7c2;
+  --success-bg: #e7f7ee;
+  --header-grad-1: #1c2430;
+  --header-grad-2: #33415c;
+  --clamp-row-bg: #fbf7ec;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow: 0 1px 2px rgba(20, 25, 35, 0.06);
+
+  /* aliases so ported tools that already used a different naming
+     convention (--color-background-secondary, etc.) work unmodified */
+  --border-radius-sm: var(--radius-sm);
+  --border-radius-md: var(--radius-md);
+  --border-radius-lg: var(--radius-lg);
+  --color-background-primary: var(--panel);
+  --color-background-secondary: var(--panel2);
+  --color-background-danger: var(--warn-bg);
+  --color-background-success: var(--success-bg);
+  --color-text-primary: var(--ink);
+  --color-text-secondary: var(--muted);
+  --color-text-tertiary: var(--muted2);
+  --color-text-danger: var(--warn);
+  --color-text-success: var(--accent2);
+  --color-border-primary: var(--line);
+  --color-border-secondary: var(--line);
+  --color-border-tertiary: var(--line);
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f1117;
+  --panel: #1e2130;
+  --panel2: #171a26;
+  --ink: #f1f5f9;
+  --muted: #94a3b8;
+  --muted2: #64748b;
+  --line: #2d3148;
+  --accent: #60a5fa;
+  --accent2: #34d399;
+  --warn: #f87171;
+  --chip: #1a2540;
+  --warn-bg: #2a1616;
+  --warn-border: #5c2626;
+  --success-bg: #102420;
+  --header-grad-1: #0b0d13;
+  --header-grad-2: #1a2036;
+  --clamp-row-bg: #2a2416;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  background: var(--bg);
+}
+body {
+  color: var(--ink);
+}
+
+/* ---- top site nav, shared by every page ---- */
+.sitenav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 9px 18px;
+  font-family:
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+.sitenav-brand {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sitenav-links {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.sitenav-links a {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.sitenav-links a:hover {
+  background: var(--panel2);
+  color: var(--ink);
+}
+.sitenav-links a.active {
+  background: var(--chip);
+  color: var(--accent);
+  font-weight: 600;
+}
+.theme-toggle {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  background: var(--chip);
+}
+
+@media (max-width: 760px) {
+  .sitenav {
+    flex-wrap: wrap;
+  }
+  .sitenav-links {
+    order: 3;
+    width: 100%;
+  }
+}
+
+/* ---- shared "?" info bubble, used by every tool page in place of an always-visible
+   paragraph of explanation. Plain <details>/<summary> so open/close, keyboard access,
+   and screen-reader semantics all come from the browser for free - theme.js only adds
+   two small conveniences: opening one closes any other, and clicking away closes it. ---- */
+.hint-details {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+}
+.hint-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--chip);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.hint-bubble::marker,
+.hint-bubble::-webkit-details-marker {
+  display: none;
+  content: '';
+}
+.hint-bubble:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.hint-details[open] > .hint-bubble {
+  background: var(--accent);
+  color: #fff;
+}
+.hint-popover {
+  position: absolute;
+  z-index: 60;
+  top: 22px;
+  left: 0;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: normal;
+}
+.hint-popover p {
+  margin: 0 0 6px;
+}
+.hint-popover p:last-child {
+  margin-bottom: 0;
+}

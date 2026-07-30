@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oil Viscosity Comparison — Valving Toolbox</title>
+<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.45; }
+  .page-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 4px; padding: 20px 20px 0; }
+  .page-sub { font-size: 0.8rem; color: var(--muted); margin: 0; padding: 0 20px 12px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 1rem 20px 3rem; }
+  .oil-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 760px) { .oil-grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .card h2 { font-size: 0.95rem; margin: 0 0 10px; }
+  .oil-name-input {
+    width: 100%; font-size: 0.95rem; font-weight: 700; border: none; background: transparent;
+    color: var(--ink); padding: 0 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 10px;
+  }
+  .oil-name-input:focus { outline: none; border-color: var(--accent); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  input[type=number] {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 5px 8px; font-size: 0.85rem; width: 100%;
+  }
+  input[type=number]:focus { outline: none; border-color: var(--accent); }
+  input[readonly] { color: var(--muted); }
+  .probe-box { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .probe-out-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .probe-out { background: var(--panel2); border-radius: 6px; padding: 6px 8px; text-align: center; }
+  .probe-out-label { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .probe-out-val { font-size: 0.9rem; font-weight: 700; margin-top: 2px; }
+  .vi-note { font-size: 0.62rem; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .chart-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .chart-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+  .toggle-row input { width: auto; }
+  .legend { display: flex; gap: 14px; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 5px; }
+  .leg-line { width: 16px; height: 3px; border-radius: 2px; }
+  .canvas-wrap { position: relative; border-radius: var(--radius-md); background: var(--panel2); border: 1px solid var(--line); }
+  canvas#chart { display: block; width: 100%; height: 440px; cursor: crosshair; }
+  .hover-readout { font-size: 0.72rem; color: var(--muted); margin-top: 8px; min-height: 16px; text-align: center; }
+</style>
+</head>
+<body>
+
+<nav class="sitenav">
+  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+  <div class="sitenav-links">
+    <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
+    <a href="spring-calculator.html">Spring Curve Calculator</a>
+    <a href="shim-delta.html">Shim Delta Tool</a>
+    <a href="oil-viscosity.html" class="active">Oil Viscosity</a>
+    <a href="spring-damper-curve.html">Wheel Force</a>
+  </div>
+  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+</nav>
+
+<h1 class="page-title">🌡️ Oil Viscosity Comparison</h1>
+<p class="page-sub">Enter two calibration points per oil (typically cSt @40°C and @100°C) to plot viscosity across a temperature range, compute Viscosity Index, and probe any temperature.</p>
+
+<div class="wrap">
+
+  <div class="oil-grid">
+    <div class="card">
+      <input class="oil-name-input" id="oil1_name" value="Oil 1">
+      <div class="field-row">
+        <div class="field"><label>Temp 1 (°C)</label><input type="number" id="temp1_m" value="40"></div>
+        <div class="field"><label>Visc 1 (cSt)</label><input type="number" id="visc1_m" value="22"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Temp 2 (°C)</label><input type="number" id="temp2_m" value="100"></div>
+        <div class="field"><label>Visc 2 (cSt)</label><input type="number" id="visc2_m" value="4.29"></div>
+      </div>
+      <div class="probe-box">
+        <div class="field"><label>Probe temperature (°C)</label><input type="number" id="tempx_m" value="40"></div>
+        <div class="probe-out-grid">
+          <div class="probe-out"><div class="probe-out-label">cSt</div><div class="probe-out-val" id="viscx_m" style="color:#1c91c0;">—</div></div>
+          <div class="probe-out"><div class="probe-out-label">SUS</div><div class="probe-out-val" id="viscx_i" style="color:#1c91c0;">—</div></div>
+          <div class="probe-out"><div class="probe-out-label">VI</div><div class="probe-out-val" id="vi_1" style="color:#1c91c0;">—</div></div>
+        </div>
+        <div class="vi-note" id="procedure_1"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <input class="oil-name-input" id="oil2_name" value="Oil 2">
+      <div class="field-row">
+        <div class="field"><label>Temp 1 (°C)</label><input type="number" id="temp1_m_2" value="40"></div>
+        <div class="field"><label>Visc 1 (cSt)</label><input type="number" id="visc1_m_2" value="32"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Temp 2 (°C)</label><input type="number" id="temp2_m_2" value="100"></div>
+        <div class="field"><label>Visc 2 (cSt)</label><input type="number" id="visc2_m_2" value="5.36"></div>
+      </div>
+      <div class="probe-box">
+        <div class="field"><label>Probe temperature (°C)</label><input type="number" id="tempx_m_2" value="40"></div>
+        <div class="probe-out-grid">
+          <div class="probe-out"><div class="probe-out-label">cSt</div><div class="probe-out-val" id="viscx_m_2" style="color:#d33682;">—</div></div>
+          <div class="probe-out"><div class="probe-out-label">SUS</div><div class="probe-out-val" id="viscx_i_2" style="color:#d33682;">—</div></div>
+          <div class="probe-out"><div class="probe-out-label">VI</div><div class="probe-out-val" id="vi_2" style="color:#d33682;">—</div></div>
+        </div>
+        <div class="vi-note" id="procedure_2"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-controls">
+      <div class="legend">
+        <div class="leg-item"><div class="leg-line" style="background:#1c91c0;"></div><span id="leg1name">Oil 1</span></div>
+        <div class="leg-item"><div class="leg-line" style="background:#d33682;"></div><span id="leg2name">Oil 2</span></div>
+      </div>
+      <label class="toggle-row"><input type="checkbox" id="toggle_crosshair" checked> Follow mouse (uncheck to only update on click)</label>
+    </div>
+    <div class="canvas-wrap"><canvas id="chart"></canvas></div>
+    <div class="hover-readout" id="hoverReadout">Hover or click the chart to probe a temperature.</div>
+  </div>
+
+</div>
+
+<script>
+// =========================================================
+// Viscosity math — ASTM/Walther viscosity-temperature relation
+// and ASTM D2270 / ISO 2909 Viscosity Index.
+// =========================================================
+const KELVIN = 273.15;
+const log10 = (x) => Math.log(x) / Math.LN10;
+
+// Generalized two-point Walther interpolation/extrapolation: given viscosity
+// v1 at temp t1 and v2 at t2 (any two temps, not necessarily 40/100), returns
+// viscosity at temp tq. log10(log10(v+0.7)) is linear in log10(T_kelvin).
+function waltherViscAt(t1, v1, t2, v2, tq) {
+  const y1 = log10(log10(v1 + 0.7)), y2 = log10(log10(v2 + 0.7));
+  const x1 = log10(t1 + KELVIN), x2 = log10(t2 + KELVIN), xq = log10(tq + KELVIN);
+  const slope = (y2 - y1) / (x1 - x2);
+  const intercept = y1 + slope * x1;
+  const yq = intercept - slope * xq;
+  return Math.pow(10, Math.pow(10, yq)) - 0.7;
+}
+
+// Resolve the viscosity at a specific reference temp (40 or 100 °C) from
+// whatever two calibration points were entered - uses the point directly if
+// it happens to already be at that temp, otherwise interpolates/extrapolates.
+function viscAtRef(refTemp, t1, v1, t2, v2) {
+  if (t1 === refTemp) return v1;
+  if (t2 === refTemp) return v2;
+  return waltherViscAt(t1, v1, t2, v2, refTemp);
+}
+
+function susToCst(sus) {
+  if (sus > 240) return sus / 4.635;
+  if (sus > 100) return 0.2193 * sus - 134.6 / sus;
+  if (sus > 32) return 0.2253 * sus - 194.4 / sus;
+  return NaN;
+}
+function cstToSus(cst) {
+  if (cst > 52) return 4.635 * cst;
+  if (cst > 20.5) return (cst + Math.sqrt(cst ** 2 + 118.07)) / 0.4386;
+  if (cst > 1) return (cst + Math.sqrt(cst ** 2 + 175.2)) / 0.4506;
+  return NaN;
+}
+
+// ASTM D2270 / ISO 2909 "L and H" reference table: [KV100, L, H] for the
+// 2-70 cSt@100C range covered by the standard's tables (used to look up the
+// viscosity-at-40C of the VI=0 (L) and VI=100 (H) reference oils that share
+// the sample's KV100).
+const L_AND_H = [
+  [2, 7.994, 6.394], [2.1, 8.64, 6.894], [2.2, 9.309, 7.41], [2.3, 10, 7.944],
+  [2.4, 10.71, 8.496], [2.5, 11.45, 9.063], [2.6, 12.21, 9.647], [2.7, 13, 10.25],
+  [2.8, 13.8, 10.87], [2.9, 14.63, 11.5], [3, 15.49, 12.15], [3.1, 16.36, 12.82],
+  [3.2, 17.26, 13.51], [3.3, 18.18, 14.21], [3.4, 19.12, 14.93], [3.5, 20.09, 15.66],
+  [3.6, 21.08, 16.42], [3.7, 22.09, 17.19], [3.8, 23.13, 17.97], [3.9, 24.19, 18.77],
+  [4, 25.32, 19.56], [4.1, 26.5, 20.37], [4.2, 27.75, 21.21], [4.3, 29.07, 22.05],
+  [4.4, 30.48, 22.92], [4.5, 31.96, 23.81], [4.6, 33.52, 24.71], [4.7, 35.13, 25.63],
+  [4.8, 36.79, 26.57], [4.9, 38.5, 27.53], [5, 40.23, 28.49], [5.1, 41.99, 29.46],
+  [5.2, 43.76, 30.43], [5.3, 45.53, 31.4], [5.4, 47.31, 32.37], [5.5, 49.09, 33.34],
+  [5.6, 50.87, 34.32], [5.7, 52.64, 35.29], [5.8, 54.42, 36.26], [5.9, 56.2, 37.23],
+  [6, 57.97, 38.19], [6.1, 59.74, 39.17], [6.2, 61.52, 40.15], [6.3, 63.32, 41.13],
+  [6.4, 65.18, 42.14], [6.5, 67.12, 43.18], [6.6, 69.16, 44.24], [6.7, 71.29, 45.33],
+  [6.8, 73.48, 46.44], [6.9, 75.72, 47.51], [7, 78, 48.57],
+  [7.1, 80.25, 49.61], [7.2, 82.39, 50.69], [7.3, 84.53, 51.78], [7.4, 86.66, 52.88],
+  [7.5, 88.85, 53.98], [7.6, 91.04, 55.09], [7.7, 93.2, 56.2], [7.8, 95.43, 57.31],
+  [7.9, 97.72, 58.45], [8, 100, 59.6], [8.1, 102.3, 60.74], [8.2, 104.6, 61.89],
+  [8.3, 106.9, 63.05], [8.4, 109.2, 64.18], [8.5, 111.5, 65.32], [8.6, 113.9, 66.48],
+  [8.7, 116.2, 67.64], [8.8, 118.5, 68.79], [8.9, 120.9, 69.94], [9, 123.3, 71.1],
+  [9.1, 125.7, 72.27], [9.2, 128, 73.42], [9.3, 130.4, 74.57], [9.4, 132.8, 75.73],
+  [9.5, 135.3, 76.91], [9.6, 137.7, 78.08], [9.7, 140.1, 79.27], [9.8, 142.7, 80.46],
+  [9.9, 145.2, 81.67], [10, 147.7, 82.87], [10.1, 150.3, 84.08], [10.2, 152.9, 85.3],
+  [10.3, 155.4, 86.51], [10.4, 158, 87.72], [10.5, 160.6, 88.95], [10.6, 163.2, 90.19],
+  [10.7, 165.8, 91.4], [10.8, 168.5, 92.65], [10.9, 171.2, 93.92], [11, 173.9, 95.19],
+  [11.1, 176.6, 96.45], [11.2, 179.4, 97.71], [11.3, 182.1, 98.97], [11.4, 184.9, 100.2],
+  [11.5, 187.6, 101.5], [11.6, 190.4, 102.8], [11.7, 193.3, 104.1], [11.8, 196.2, 105.4],
+  [11.9, 199, 106.7], [12, 201.9, 108], [12.1, 204.8, 109.4],
+  [12.2, 207.8, 110.7], [12.3, 210.7, 112], [12.4, 213.6, 113.3], [12.5, 216.6, 114.7],
+  [12.6, 219.6, 116], [12.7, 222.6, 117.4], [12.8, 225.7, 118.7], [12.9, 228.8, 120.1],
+  [13, 231.9, 121.5], [13.1, 235, 122.9], [13.2, 238.1, 124.2], [13.3, 241.2, 125.6],
+  [13.4, 244.3, 127], [13.5, 247.4, 128.4], [13.6, 250.6, 129.8], [13.7, 253.8, 131.2],
+  [13.8, 257, 132.6], [13.9, 260.1, 134], [14, 263.3, 135.4], [14.1, 266.6, 136.8],
+  [14.2, 269.8, 138.2], [14.3, 273, 139.6], [14.4, 276.3, 141], [14.5, 279.6, 142.4],
+  [14.6, 283, 143.9], [14.7, 286.4, 145.3], [14.8, 289.7, 146.8], [14.9, 293, 148.2],
+  [15, 296.5, 149.7], [15.1, 300, 151.2], [15.2, 303.4, 152.6], [15.3, 306.9, 154.1],
+  [15.4, 310.3, 155.6], [15.5, 313.9, 157], [15.6, 317.5, 158.6], [15.7, 321.1, 160.1],
+  [15.8, 324.6, 161.6], [15.9, 328.3, 163.1], [16, 331.9, 164.6], [16.1, 335.5, 166.1],
+  [16.2, 339.2, 167.7], [16.3, 342.9, 169.2], [16.4, 346.6, 170.7], [16.5, 350.3, 172.3],
+  [16.6, 354.1, 173.8], [16.7, 358, 175.4], [16.8, 361.7, 177], [16.9, 365.6, 178.6],
+  [17, 369.4, 180.2], [17.1, 373.3, 181.7], [17.2, 377.1, 183.3],
+  [17.3, 381, 184.9], [17.4, 384.9, 186.5], [17.5, 388.9, 188.1], [17.6, 392.7, 189.7],
+  [17.7, 396.7, 191.3], [17.8, 400.7, 192.9], [17.9, 404.6, 194.6], [18, 408.6, 196.2],
+  [18.1, 412.6, 197.8], [18.2, 416.7, 199.4], [18.3, 420.7, 201], [18.4, 424.9, 202.6],
+  [18.5, 429, 204.3], [18.6, 433.2, 205.9], [18.7, 437.3, 207.6], [18.8, 441.5, 209.3],
+  [18.9, 445.7, 211], [19, 449.9, 212.7], [19.1, 454.2, 214.4], [19.2, 458.4, 216.1],
+  [19.3, 462.7, 217.7], [19.4, 467, 219.4], [19.5, 471.3, 221.1], [19.6, 475.7, 222.8],
+  [19.7, 479.7, 224.5], [19.8, 483.9, 226.2], [19.9, 488.6, 227.7], [20, 493.2, 229.5],
+  [20.2, 501.5, 233], [20.4, 510.8, 236.4], [20.6, 519.9, 240.1], [20.8, 528.8, 243.5],
+  [21, 538.4, 247.1], [21.2, 547.5, 250.7], [21.4, 556.7, 254.2], [21.6, 566.4, 257.8],
+  [21.8, 575.6, 261.5], [22, 585.2, 264.9], [22.2, 595, 268.6], [22.4, 604.3, 272.3],
+  [22.6, 614.2, 275.8], [22.8, 624.1, 279.6], [23, 633.6, 283.3], [23.2, 643.4, 286.8],
+  [23.4, 653.8, 290.5], [23.6, 663.3, 294.4], [23.8, 673.7, 297.9],
+  [24, 683.9, 301.8], [24.2, 694.5, 305.6], [24.4, 704.2, 309.4], [24.6, 714.9, 313],
+  [24.8, 725.7, 317], [25, 736.5, 320.9], [25.2, 747.2, 324.9], [25.4, 758.2, 328.8],
+  [25.6, 769.3, 332.7], [25.8, 779.7, 336.7], [26, 790.4, 340.5], [26.2, 801.6, 344.4],
+  [26.4, 812.8, 348.4], [26.6, 824.1, 352.3], [26.8, 835.5, 356.4], [27, 847, 360.5],
+  [27.2, 857.5, 364.6], [27.4, 869, 368.3], [27.6, 880.6, 372.3], [27.8, 892.3, 376.4],
+  [28, 904.1, 380.6], [28.2, 915.8, 384.6], [28.4, 927.6, 388.8], [28.6, 938.6, 393],
+  [28.8, 951.2, 396.6], [29, 963.4, 401.1], [29.2, 975.4, 405.3], [29.4, 987.1, 409.5],
+  [29.6, 998.9, 413.5], [29.8, 1011, 417.6], [30, 1023, 421.7], [30.5, 1055, 432.4],
+  [31, 1086, 443.2], [31.5, 1119, 454], [32, 1151, 464.9], [32.5, 1184, 475.9],
+  [33, 1217, 487], [33.5, 1251, 498.1], [34, 1286, 509.6], [34.5, 1321, 521.1],
+  [35, 1356, 532.5], [35.5, 1391, 544], [36, 1427, 555.6], [36.5, 1464, 567.1],
+  [37, 1501, 579.3], [37.5, 1538, 591.3], [38, 1575, 603.1], [38.5, 1613, 615],
+  [39, 1651, 627.1], [39.5, 1691, 639.2], [40, 1730, 651.8],
+  [40.5, 1770, 664.2], [41, 1810, 676.6], [41.5, 1851, 689.1], [42, 1892, 701.9],
+  [42.5, 1935, 714.9], [43, 1978, 728.2], [43.5, 2021, 741.3], [44, 2064, 754.4],
+  [44.5, 2108, 767.6], [45, 2152, 780.9], [45.5, 2197, 794.5], [46, 2243, 808.2],
+  [46.5, 2288, 821.9], [47, 2333, 835.5], [47.5, 2380, 849.2], [48, 2426, 863],
+  [48.5, 2473, 876.9], [49, 2521, 890.9], [49.5, 2570, 905.3], [50, 2618, 919.6],
+  [50.5, 2667, 933.6], [51, 2717, 948.2], [51.5, 2767, 962.9], [52, 2817, 977.5],
+  [52.5, 2867, 992.1], [53, 2918, 1007], [53.5, 2969, 1021], [54, 3020, 1036],
+  [54.5, 3073, 1051], [55, 3126, 1066], [55.5, 3180, 1082], [56, 3233, 1097],
+  [56.5, 3286, 1112], [57, 3340, 1127], [57.5, 3396, 1143], [58, 3452, 1159],
+  [58.5, 3507, 1175], [59, 3563, 1190], [59.5, 3619, 1206], [60, 3676, 1222],
+  [60.5, 3734, 1238], [61, 3792, 1254], [61.5, 3850, 1270], [62, 3908, 1286],
+  [62.5, 3966, 1303], [63, 4026, 1319], [63.5, 4087, 1336], [64, 4147, 1352],
+  [64.5, 4207, 1369], [65, 4268, 1386], [65.5, 4329, 1402], [66, 4392, 1419],
+  [66.5, 4455, 1436], [67, 4517, 1454], [67.5, 4580, 1471],
+  [68, 4645, 1488], [68.5, 4709, 1506], [69, 4773, 1523], [69.5, 4839, 1541],
+  [70, 4905, 1558]
+];
+
+function interp(x0, x1, y0, y1, x) {
+  return ((x - x0) * (y1 - y0)) / (x1 - x0) + y0;
+}
+
+// ASTM D2270 / ISO 2909 Viscosity Index from KV40 and KV100 (cSt).
+function viscosityIndex(v40, v100) {
+  let L, H;
+  if (v100 < 2) {
+    L = v100 * (1.35017 + 0.59482 * v100);
+    H = v100 * (1.5215 + 0.7092 * v100);
+  } else if (v100 > 70) {
+    L = 0.1684 * v100 ** 2 + 11.85 * v100 - 97;
+    H = 0.8353 * v100 ** 2 + 14.67 * v100 - 216;
+  } else {
+    let lo, hi;
+    if (v100 <= L_AND_H[0][0]) { lo = hi = L_AND_H[0]; }
+    else if (v100 >= L_AND_H[L_AND_H.length - 1][0]) { lo = hi = L_AND_H[L_AND_H.length - 1]; }
+    else {
+      let idx = 1;
+      while (idx < L_AND_H.length && v100 > L_AND_H[idx][0]) idx++;
+      lo = L_AND_H[idx - 1];
+      hi = L_AND_H[idx];
+    }
+    L = interp(lo[0], hi[0], lo[1], hi[1], v100);
+    H = interp(lo[0], hi[0], lo[2], hi[2], v100);
+  }
+  const N = (log10(H) - log10(v40)) / log10(v100);
+  let vi = Math.round((Math.pow(10, N) - 1) / 0.00715 + 100);
+  let procedure;
+  if (vi === 100) procedure = 'ISO 2909:2002 / ASTM D2270-04 Procedures A and B agree (ГОСТ 25371-2018 Методы А и Б)';
+  else if (vi < 100) {
+    vi = Math.round(((L - v40) / (L - H)) * 100);
+    procedure = 'by ISO 2909:2002 Procedure A / ASTM D2270-04 Procedure A (ГОСТ 25371-2018 Метод А)';
+  } else {
+    procedure = 'by ISO 2909:2002 Procedure B / ASTM D2270-04 Procedure B (ГОСТ 25371-2018 Метод Б)';
+  }
+  return { vi, procedure };
+}
+
+// =========================================================
+// UI wiring
+// =========================================================
+const MIN_TEMP = -30, MAX_TEMP = 120;
+
+function readOil(suffix) {
+  const t1 = parseFloat(document.getElementById('temp1_m' + suffix).value);
+  const v1 = parseFloat(document.getElementById('visc1_m' + suffix).value);
+  const t2 = parseFloat(document.getElementById('temp2_m' + suffix).value);
+  const v2 = parseFloat(document.getElementById('visc2_m' + suffix).value);
+  return { t1, v1, t2, v2 };
+}
+
+function viscAt(oil, tempC) {
+  return waltherViscAt(oil.t1, oil.v1, oil.t2, oil.v2, tempC);
+}
+
+function updateProbe(suffix) {
+  const oil = readOil(suffix);
+  const tempx = parseFloat(document.getElementById('tempx_m' + suffix).value);
+  const v = viscAt(oil, tempx);
+  document.getElementById('viscx_m' + suffix).textContent = v.toFixed(2);
+  document.getElementById('viscx_i' + suffix).textContent = cstToSus(v).toFixed(2);
+  const v40 = viscAtRef(40, oil.t1, oil.v1, oil.t2, oil.v2);
+  const v100 = viscAtRef(100, oil.t1, oil.v1, oil.t2, oil.v2);
+  const { vi, procedure } = viscosityIndex(v40, v100);
+  const idx = suffix === '_2' ? '2' : '1';
+  document.getElementById('vi_' + idx).textContent = isFinite(vi) ? vi : '—';
+  document.getElementById('procedure_' + idx).textContent = procedure;
+}
+
+function recalc() {
+  document.getElementById('leg1name').textContent = document.getElementById('oil1_name').value || 'Oil 1';
+  document.getElementById('leg2name').textContent = document.getElementById('oil2_name').value || 'Oil 2';
+  updateProbe('');
+  updateProbe('_2');
+  drawChart();
+}
+
+// =========================================================
+// Chart: temperature (linear X) vs viscosity (log Y), two curves,
+// hover/click crosshair driving both oils' probe temp fields.
+// =========================================================
+const chartCanvas = document.getElementById('chart');
+const chartCtx = chartCanvas.getContext('2d');
+const pad = { l: 56, r: 16, t: 16, b: 40 };
+let plotState = null; // cached scales from the last draw, used by hover/click
+
+function niceLogTicks(yMin, yMax) {
+  const lo = Math.floor(log10(yMin)), hi = Math.ceil(log10(yMax));
+  const ticks = [];
+  for (let p = lo; p <= hi; p++) {
+    for (const m of [1, 2, 5]) {
+      const v = m * Math.pow(10, p);
+      if (v >= yMin * 0.999 && v <= yMax * 1.001) ticks.push(v);
+    }
+  }
+  return ticks;
+}
+
+function sizeChartCanvas() {
+  const wrap = chartCanvas.parentElement;
+  const w = wrap.clientWidth || 600;
+  const h = chartCanvas.clientHeight || 440;
+  const dpr = window.devicePixelRatio || 1;
+  chartCanvas.width = Math.round(w * dpr);
+  chartCanvas.height = Math.round(h * dpr);
+  chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+
+function drawChart() {
+  const { w, h } = sizeChartCanvas();
+  const oil1 = readOil('');
+  const oil2 = readOil('_2');
+  const pts1 = [], pts2 = [];
+  let yMin = Infinity, yMax = -Infinity;
+  for (let t = MIN_TEMP; t <= MAX_TEMP; t += 2) {
+    const v1 = viscAt(oil1, t), v2 = viscAt(oil2, t);
+    pts1.push({ t, v: v1 });
+    pts2.push({ t, v: v2 });
+    if (isFinite(v1) && v1 > 0) { yMin = Math.min(yMin, v1); yMax = Math.max(yMax, v1); }
+    if (isFinite(v2) && v2 > 0) { yMin = Math.min(yMin, v2); yMax = Math.max(yMax, v2); }
+  }
+  if (!isFinite(yMin) || !isFinite(yMax) || yMin <= 0) { yMin = 1; yMax = 100; }
+  yMin = Math.pow(10, Math.floor(log10(yMin)));
+  yMax = Math.pow(10, Math.ceil(log10(yMax)));
+
+  const pw = w - pad.l - pad.r, phh = h - pad.t - pad.b;
+  const mx = (t) => pad.l + ((t - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)) * pw;
+  const my = (v) => pad.t + phh - ((log10(v) - log10(yMin)) / (log10(yMax) - log10(yMin))) * phh;
+  plotState = { pad, pw, phh, mx, my, yMin, yMax };
+
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const gridColor = isDark ? '#2d3148' : '#e5e7eb';
+  const axisColor = isDark ? '#64748b' : '#9aa3af';
+  const textColor = isDark ? '#94a3b8' : '#5b6472';
+
+  chartCtx.clearRect(0, 0, w, h);
+
+  // gridlines
+  chartCtx.strokeStyle = gridColor;
+  chartCtx.lineWidth = 1;
+  chartCtx.font = '11px system-ui';
+  chartCtx.fillStyle = textColor;
+  for (let t = Math.ceil(MIN_TEMP / 20) * 20; t <= MAX_TEMP; t += 20) {
+    const x = mx(t);
+    chartCtx.beginPath(); chartCtx.moveTo(x, pad.t); chartCtx.lineTo(x, pad.t + phh); chartCtx.stroke();
+    chartCtx.textAlign = 'center';
+    chartCtx.fillText(t + '°C', x, pad.t + phh + 16);
+  }
+  niceLogTicks(yMin, yMax).forEach((v) => {
+    const y = my(v);
+    chartCtx.strokeStyle = gridColor;
+    chartCtx.beginPath(); chartCtx.moveTo(pad.l, y); chartCtx.lineTo(pad.l + pw, y); chartCtx.stroke();
+    chartCtx.textAlign = 'right';
+    chartCtx.fillText(v >= 100 ? v.toFixed(0) : v.toFixed(v >= 10 ? 0 : 1), pad.l - 6, y + 3);
+  });
+
+  // axes
+  chartCtx.strokeStyle = axisColor;
+  chartCtx.lineWidth = 1.5;
+  chartCtx.beginPath();
+  chartCtx.moveTo(pad.l, pad.t); chartCtx.lineTo(pad.l, pad.t + phh); chartCtx.lineTo(pad.l + pw, pad.t + phh);
+  chartCtx.stroke();
+  chartCtx.textAlign = 'center';
+  chartCtx.fillText('Temperature (°C)', pad.l + pw / 2, h - 6);
+  chartCtx.save();
+  chartCtx.translate(14, pad.t + phh / 2);
+  chartCtx.rotate(-Math.PI / 2);
+  chartCtx.fillText('Kinematic viscosity (cSt, log scale)', 0, 0);
+  chartCtx.restore();
+
+  // curves
+  function drawCurve(pts, color) {
+    chartCtx.strokeStyle = color;
+    chartCtx.lineWidth = 2.5;
+    chartCtx.beginPath();
+    let started = false;
+    pts.forEach((p) => {
+      if (!isFinite(p.v) || p.v <= 0) { started = false; return; }
+      const x = mx(p.t), y = my(p.v);
+      if (!started) { chartCtx.moveTo(x, y); started = true; }
+      else chartCtx.lineTo(x, y);
+    });
+    chartCtx.stroke();
+  }
+  drawCurve(pts1, '#1c91c0');
+  drawCurve(pts2, '#d33682');
+
+  // crosshair, driven by each oil's own probe temp field
+  function crosshair(tempId, oil, color) {
+    const t = parseFloat(document.getElementById(tempId).value);
+    if (!isFinite(t) || t < MIN_TEMP || t > MAX_TEMP) return;
+    const v = viscAt(oil, t);
+    if (!isFinite(v) || v <= 0) return;
+    const x = mx(t), y = my(v);
+    chartCtx.save();
+    chartCtx.strokeStyle = color; chartCtx.setLineDash([4, 3]); chartCtx.globalAlpha = 0.6;
+    chartCtx.beginPath(); chartCtx.moveTo(x, pad.t); chartCtx.lineTo(x, pad.t + phh); chartCtx.stroke();
+    chartCtx.setLineDash([]); chartCtx.globalAlpha = 1;
+    chartCtx.fillStyle = color;
+    chartCtx.beginPath(); chartCtx.arc(x, y, 4, 0, Math.PI * 2); chartCtx.fill();
+    chartCtx.restore();
+  }
+  crosshair('tempx_m', oil1, '#1c91c0');
+  crosshair('tempx_m_2', oil2, '#d33682');
+}
+
+function updateHoverReadout(tempC) {
+  const oil1 = readOil(''), oil2 = readOil('_2');
+  const v1 = viscAt(oil1, tempC), v2 = viscAt(oil2, tempC);
+  const name1 = document.getElementById('oil1_name').value || 'Oil 1';
+  const name2 = document.getElementById('oil2_name').value || 'Oil 2';
+  document.getElementById('hoverReadout').textContent =
+    `${tempC.toFixed(1)}°C — ${name1}: ${v1.toFixed(2)} cSt (${cstToSus(v1).toFixed(1)} SUS)  ·  ${name2}: ${v2.toFixed(2)} cSt (${cstToSus(v2).toFixed(1)} SUS)`;
+}
+
+function setProbeTemp(tempC) {
+  tempC = Math.max(MIN_TEMP, Math.min(MAX_TEMP, tempC));
+  document.getElementById('tempx_m').value = tempC.toFixed(1);
+  document.getElementById('tempx_m_2').value = tempC.toFixed(1);
+  updateHoverReadout(tempC);
+  recalc();
+}
+
+chartCanvas.addEventListener('mousemove', (e) => {
+  if (!plotState || !document.getElementById('toggle_crosshair').checked) return;
+  const rect = chartCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const t = MIN_TEMP + ((x - plotState.pad.l) / plotState.pw) * (MAX_TEMP - MIN_TEMP);
+  if (t < MIN_TEMP || t > MAX_TEMP) return;
+  setProbeTemp(t);
+});
+chartCanvas.addEventListener('click', (e) => {
+  if (!plotState) return;
+  const rect = chartCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const t = MIN_TEMP + ((x - plotState.pad.l) / plotState.pw) * (MAX_TEMP - MIN_TEMP);
+  setProbeTemp(t);
+});
+
+const allIds = [
+  'oil1_name', 'temp1_m', 'visc1_m', 'temp2_m', 'visc2_m', 'tempx_m',
+  'oil2_name', 'temp1_m_2', 'visc1_m_2', 'temp2_m_2', 'visc2_m_2', 'tempx_m_2',
+];
+allIds.forEach((id) => document.getElementById(id).addEventListener('input', recalc));
+document.getElementById('toggle_crosshair').addEventListener('change', drawChart);
+
+new ResizeObserver(() => drawChart()).observe(chartCanvas.parentElement);
+
+// Redraw whenever the theme actually changes, rather than reacting to the toggle button's
+// click event directly - theme.js's own flip only happens inside ITS click handler, which
+// (being registered later, inside its DOMContentLoaded callback) runs after any listener a
+// trailing <script> attaches to the same click, so a click-based redraw here would draw with
+// the stale, pre-flip colors. Watching the attribute itself sidesteps that ordering entirely.
+new MutationObserver(() => drawChart()).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['data-theme'],
+});
+
+recalc();
+</script>
+
+<script src="theme.js"></script>
+</body>
+</html>

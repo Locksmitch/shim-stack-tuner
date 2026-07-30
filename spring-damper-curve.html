@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wheel Force Curve — Valving Toolbox</title>
+<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.45; }
+  .page-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 4px; padding: 20px 20px 0; }
+  .page-sub { font-size: 0.8rem; color: var(--muted); margin: 0; padding: 0 20px 12px; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 1rem 20px 3rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 0.95rem; margin: 0 0 10px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  select {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 6px 8px; font-size: 0.85rem; width: 100%;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  .sync-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); flex-wrap: wrap; }
+  .sync-status { font-size: 0.78rem; color: var(--muted); }
+  .sync-status.ok { color: var(--accent2); }
+  .sync-status.err { color: var(--warn); }
+  .btn {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--ink);
+    border-radius: var(--radius-sm); padding: 6px 12px; font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--chip); }
+  .chart-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .legend { display: flex; gap: 14px; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; margin-bottom: 10px; }
+  .leg-item { display: flex; align-items: center; gap: 5px; }
+  .leg-line { width: 16px; height: 3px; border-radius: 2px; }
+  .leg-item.dimmed { opacity: 0.4; }
+  .canvas-wrap { position: relative; border-radius: var(--radius-md); background: var(--panel2); border: 1px solid var(--line); }
+  canvas#chart { display: block; width: 100%; height: 420px; }
+  .velocity-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .velocity-row label { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=range]:disabled { opacity: 0.4; cursor: not-allowed; }
+  .velocity-readout { font-size: 0.78rem; color: var(--ink); margin: 8px 0 0; text-align: center; }
+  .velocity-readout.disabled { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav class="sitenav">
+  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+  <div class="sitenav-links">
+    <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
+    <a href="spring-calculator.html">Spring Curve Calculator</a>
+    <a href="shim-delta.html">Shim Delta Tool</a>
+    <a href="oil-viscosity.html">Oil Viscosity</a>
+    <a href="spring-damper-curve.html" class="active">Wheel Force</a>
+  </div>
+  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+</nav>
+
+<h1 class="page-title">🛞 Wheel Force Curve</h1>
+<p class="page-sub">Spring force across your travel range, plus how much extra force a compression valve tune adds at a given shaft velocity. The valve tune is live-synced from whatever is currently computed in the Shim Stack Tuner tab.</p>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>Setup</h2>
+    <div class="field-row">
+      <div class="field">
+        <label>Spring rate</label>
+        <select id="springRate"></select>
+      </div>
+      <div class="field">
+        <label>Travel range</label>
+        <select id="travelMax"></select>
+      </div>
+    </div>
+    <div class="sync-row">
+      <span id="syncStatus" class="sync-status">Checking for a synced valve config…</span>
+      <button id="refreshBtn" class="btn" type="button">↻ Refresh from tuner</button>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="legend">
+      <div class="leg-item"><div class="leg-line" style="background:#2f6fed;"></div>Spring only</div>
+      <div class="leg-item" id="legCombined"><div class="leg-line" style="background:#0f9d58;"></div>Spring + damper</div>
+    </div>
+    <div class="canvas-wrap"><canvas id="chart"></canvas></div>
+
+    <div class="velocity-row">
+      <label for="velocity">Shaft velocity</label>
+      <input type="range" id="velocity" min="0" max="8000" step="50" value="0">
+    </div>
+    <p class="velocity-readout" id="damperReadout">Load a valve config to see damper force.</p>
+  </div>
+
+</div>
+
+<script type="module">
+import { buildStack, solveForceAtVelocity } from './js/physics.js';
+import { lsGet } from './js/storage.js';
+import { setupCanvas } from './js/canvas-utils.js';
+
+const LIVE_CONFIG_KEY = 'sst_live_config_v1';
+const N_PER_LBF = 4.4482216153;
+const MM_PER_IN = 25.4;
+
+let liveConfig = null;
+let stack = null;
+let buildErr = null;
+
+const chartCanvas = document.getElementById('chart');
+const ctx0 = chartCanvas.getContext('2d');
+const pad = { l: 100, r: 20, t: 20, b: 44 };
+
+function populateRange(select, min, max, step, unit, defaultVal) {
+  for (let v = min; v <= max; v += step) {
+    const opt = document.createElement('option');
+    opt.value = String(v);
+    opt.textContent = `${v} ${unit}`;
+    if (v === defaultVal) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+populateRange(document.getElementById('springRate'), 25, 75, 5, 'lb/in', 50);
+populateRange(document.getElementById('travelMax'), 130, 200, 5, 'mm', 200);
+
+function springForceN(rateLbIn, travelMm) {
+  return rateLbIn * (travelMm / MM_PER_IN) * N_PER_LBF;
+}
+function fmtForceDual(n) {
+  return `${n.toFixed(0)} N (${(n / N_PER_LBF).toFixed(0)} lbf)`;
+}
+function fmtVelDual(mmps) {
+  return `${mmps.toFixed(0)} mm/s (${(mmps / MM_PER_IN).toFixed(1)} in/s)`;
+}
+function valveTypeLabel(vt) {
+  if (vt === 'base') return 'base valve';
+  if (vt === 'mainRebound') return 'main/mid rebound';
+  return 'main/mid compression';
+}
+
+function updateSyncStatusUI() {
+  const el = document.getElementById('syncStatus');
+  const slider = document.getElementById('velocity');
+  const legCombined = document.getElementById('legCombined');
+  if (!liveConfig) {
+    el.textContent = 'No valve config found — open the Shim Stack Tuner tab to compute one.';
+    el.className = 'sync-status';
+    slider.disabled = true;
+    legCombined.classList.add('dimmed');
+  } else if (!stack) {
+    el.textContent = 'Synced config failed to build: ' + buildErr;
+    el.className = 'sync-status err';
+    slider.disabled = true;
+    legCombined.classList.add('dimmed');
+  } else {
+    const n = liveConfig.rows.length;
+    el.textContent = `✓ Synced from Shim Stack Tuner — ${n} shim row${n === 1 ? '' : 's'}, ${valveTypeLabel(liveConfig.valveType)}, clamp ⌀${liveConfig.geom.clampDia.toFixed(1)}mm`;
+    el.className = 'sync-status ok';
+    slider.disabled = false;
+    legCombined.classList.remove('dimmed');
+  }
+}
+
+function rebuildFromConfig() {
+  liveConfig = lsGet(LIVE_CONFIG_KEY);
+  stack = null;
+  buildErr = null;
+  if (liveConfig) {
+    try {
+      stack = buildStack(liveConfig.rows, liveConfig.geom, liveConfig.mech, {
+        Fmax: liveConfig.fMax,
+        nSteps: 150,
+        nSeg: 350,
+      });
+    } catch (e) {
+      buildErr = e.message;
+    }
+  }
+  updateSyncStatusUI();
+  recompute();
+}
+
+function damperForceN(velocityMMs) {
+  if (!stack) return 0;
+  return solveForceAtVelocity(velocityMMs, stack, liveConfig.geom, liveConfig.fluid, liveConfig.valveType, liveConfig.fMax)
+    .F;
+}
+
+function drawChart(travelMax, springMax, fDamper, hasStack) {
+  const { ctx, w, h } = setupCanvas(chartCanvas);
+  const combinedMax = springMax + (hasStack ? fDamper : 0);
+  const yMax = Math.max(combinedMax, springMax, 1) * 1.15;
+  const pw = w - pad.l - pad.r,
+    phh = h - pad.t - pad.b;
+  const mx = (x) => pad.l + (x / travelMax) * pw;
+  const my = (f) => pad.t + phh - (f / yMax) * phh;
+
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const gridColor = isDark ? '#2d3148' : '#e5e7eb';
+  const axisColor = isDark ? '#64748b' : '#9aa3af';
+  const textColor = isDark ? '#94a3b8' : '#5b6472';
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px system-ui';
+
+  const NX = 8,
+    NY = 6;
+  for (let i = 0; i <= NX; i++) {
+    const x = (travelMax * i) / NX;
+    const px = mx(x);
+    ctx.strokeStyle = gridColor;
+    ctx.beginPath();
+    ctx.moveTo(px, pad.t);
+    ctx.lineTo(px, pad.t + phh);
+    ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(x) + ' mm', px, pad.t + phh + 16);
+  }
+  for (let i = 0; i <= NY; i++) {
+    const f = (yMax * i) / NY;
+    const py = my(f);
+    ctx.strokeStyle = gridColor;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, py);
+    ctx.lineTo(pad.l + pw, py);
+    ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtForceDual(f), pad.l - 8, py + 4);
+  }
+
+  ctx.strokeStyle = axisColor;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, pad.t + phh);
+  ctx.lineTo(pad.l + pw, pad.t + phh);
+  ctx.stroke();
+  ctx.fillStyle = textColor;
+  ctx.textAlign = 'center';
+  ctx.fillText('Wheel travel (mm)', pad.l + pw / 2, h - 6);
+  ctx.save();
+  ctx.translate(16, pad.t + phh / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Force', 0, 0);
+  ctx.restore();
+
+  ctx.strokeStyle = '#2f6fed';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(mx(0), my(0));
+  ctx.lineTo(mx(travelMax), my(springMax));
+  ctx.stroke();
+
+  if (hasStack) {
+    ctx.strokeStyle = '#0f9d58';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(mx(0), my(fDamper));
+    ctx.lineTo(mx(travelMax), my(springMax + fDamper));
+    ctx.stroke();
+  }
+}
+
+function recompute() {
+  const rate = parseFloat(document.getElementById('springRate').value);
+  const travelMax = parseFloat(document.getElementById('travelMax').value);
+  const velocity = parseFloat(document.getElementById('velocity').value);
+  const springMax = springForceN(rate, travelMax);
+  const hasStack = !!stack;
+  const fDamper = hasStack ? damperForceN(velocity) : 0;
+
+  const readout = document.getElementById('damperReadout');
+  if (hasStack) {
+    readout.textContent = `Shaft velocity: ${fmtVelDual(velocity)} → damper force: ${fmtForceDual(fDamper)}`;
+    readout.classList.remove('disabled');
+  } else {
+    readout.textContent = 'Load a valve config to see damper force.';
+    readout.classList.add('disabled');
+  }
+
+  drawChart(travelMax, springMax, fDamper, hasStack);
+}
+
+document.getElementById('springRate').addEventListener('input', recompute);
+document.getElementById('travelMax').addEventListener('input', recompute);
+document.getElementById('velocity').addEventListener('input', recompute);
+document.getElementById('refreshBtn').addEventListener('click', rebuildFromConfig);
+window.addEventListener('storage', (e) => {
+  if (e.key === LIVE_CONFIG_KEY) rebuildFromConfig();
+});
+new ResizeObserver(() => recompute()).observe(chartCanvas.parentElement);
+// Watch the theme attribute directly (rather than the toggle button's click event) so the
+// redraw always uses the post-flip colors regardless of script/listener registration order.
+new MutationObserver(() => recompute()).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['data-theme'],
+});
+
+rebuildFromConfig();
+</script>
+
+<script src="theme.js"></script>
+</body>
+</html>

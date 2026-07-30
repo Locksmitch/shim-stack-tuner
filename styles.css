@@ -1,17 +1,10 @@
-:root {
-  --bg: #f4f5f7;
-  --panel: #ffffff;
-  --ink: #1c2430;
-  --muted: #5b6472;
-  --line: #dde1e6;
-  --accent: #2f6fed;
-  --accent2: #0f9d58;
-  --warn: #c0392b;
-  --chip: #eef2ff;
-}
-* {
-  box-sizing: border-box;
-}
+/* Shared color variables, light/dark palettes, and the site nav bar live in
+   theme.css (loaded before this file) so the toggle applies across every
+   tool page, not just this one. This file only styles page-specific
+   components. The live-preview/results canvases intentionally keep a fixed
+   light plotting surface in both themes — their axis/label colors are drawn
+   in JS (canvas-utils.js) assuming a light background, so re-theming them
+   would need touching that drawing code too; not done here. */
 body {
   margin: 0;
   font-family:
@@ -26,7 +19,7 @@ body {
   line-height: 1.4;
 }
 header {
-  background: linear-gradient(135deg, #1c2430, #33415c);
+  background: linear-gradient(135deg, var(--header-grad-1), var(--header-grad-2));
   color: #fff;
   padding: 18px 20px;
 }
@@ -89,7 +82,7 @@ header p {
 .panel h2 .panel-move {
   cursor: pointer;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   border-radius: 6px;
   padding: 2px 7px;
   font-size: 11px;
@@ -97,7 +90,7 @@ header p {
   line-height: 1.4;
 }
 .panel h2 .panel-move:hover {
-  background: #f0f2f5;
+  background: var(--panel2);
   color: var(--ink);
 }
 .panel h2 .chev {
@@ -128,7 +121,7 @@ header p {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 2px 4px 2px 8px;
-  background: #fbfcfe;
+  background: var(--panel2);
 }
 .pin-chip .sw {
   width: 10px;
@@ -175,7 +168,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 13px;
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
 }
 .row3 {
@@ -198,6 +191,18 @@ table {
   border-collapse: collapse;
   font-size: 12.5px;
 }
+/* Default table-layout:auto redistributes column widths to fit the container, which
+   silently shrinks the explicit column widths below their set size (and clips digits)
+   once the shim table's columns don't all fit a narrow workspace column. Fixed layout
+   respects each column's specified width instead - combined with the smaller table font
+   below, every column's width here is the measured minimum (plus a small margin) needed
+   to show its worst-case value (e.g. "23.000" or "0.0031") without clipping, so the whole
+   table fits a normal workspace column with no horizontal scroll. */
+#shimTable {
+  table-layout: fixed;
+  min-width: 548px;
+  font-size: 11px;
+}
 th {
   text-align: left;
   color: var(--muted);
@@ -209,17 +214,43 @@ td {
   padding: 3px 6px;
   vertical-align: middle;
 }
-td input {
+/* #shimTable-scoped (not just "td") because the generic input[type='number']/select
+   rule above is an attribute selector, which outranks a plain "td input" on specificity
+   regardless of source order - without the ID prefix these padding/font-size overrides
+   silently lose and the column-width math above is calculated against sizes that never
+   actually render. */
+#shimTable td input {
   padding: 4px 6px;
-  font-size: 12.5px;
+  font-size: 11px;
 }
-td select {
+.col-count {
+  width: 54px;
+}
+.col-diam {
+  width: 74px;
+}
+.col-dec {
+  width: 76px;
+}
+#shimTable td select {
   padding: 4px 4px;
-  font-size: 12px;
+  font-size: 11px;
 }
 tr.clamp-row td,
 tr.nut-row td {
-  background: #fbf7ec;
+  background: var(--clamp-row-bg);
+}
+/* Brief highlight so a row you just added, duplicated, or moved up/down is easy to spot -
+   background fades out via the transition below once .row-moved is removed; the sliding
+   transform (set inline by animateRowMove() in app.js) shows which direction it moved. */
+#shimBody tr {
+  transition: transform 0.25s ease-out;
+}
+#shimBody tr td {
+  transition: background-color 0.6s ease-out;
+}
+#shimBody tr.row-moved td {
+  background-color: rgba(47, 111, 237, 0.28);
 }
 .stack-table-wrap {
   max-height: 340px;
@@ -231,14 +262,25 @@ tr.nut-row td {
 button {
   cursor: pointer;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   border-radius: 7px;
   padding: 7px 12px;
   font-size: 13px;
   color: var(--ink);
 }
 button:hover {
-  background: #f0f2f5;
+  background: var(--panel2);
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+button:disabled:hover {
+  background: var(--panel);
+}
+button.primary:disabled:hover {
+  background: var(--accent);
+  filter: none;
 }
 button.primary {
   background: var(--accent);
@@ -247,7 +289,7 @@ button.primary {
   font-weight: 600;
 }
 button.primary:hover {
-  background: #2a5fce;
+  filter: brightness(0.92);
 }
 button.small {
   padding: 4px 8px;
@@ -255,7 +297,7 @@ button.small {
 }
 button.danger {
   color: var(--warn);
-  border-color: #f3c7c2;
+  border-color: var(--warn-border);
 }
 .btnrow {
   display: flex;
@@ -313,21 +355,14 @@ button.danger {
   margin-left: 6px;
 }
 .warn-box {
-  background: #fdecea;
-  border: 1px solid #f3c7c2;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
   color: var(--warn);
   padding: 10px 12px;
   border-radius: 8px;
   font-size: 13px;
   margin-bottom: 12px;
   display: none;
-}
-.about {
-  font-size: 13px;
-  color: var(--muted);
-}
-.about b {
-  color: var(--ink);
 }
 details summary {
   cursor: pointer;
@@ -341,6 +376,13 @@ canvas {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+/* The stack preview and damping-force charts draw their own axes/text with colors read
+   from the theme (see themeColor() in canvas-utils.js), so - unlike the other canvases
+   below, which still assume a fixed light background - these two switch with it. */
+#stackCanvas,
+#forceCanvas {
+  background: var(--panel);
 }
 .slider-row {
   display: flex;
@@ -374,10 +416,10 @@ footer {
   margin-right: 1px;
 }
 .catchip {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 3px 7px;
-  background: #fbfcfe;
+  background: var(--panel2);
 }
 .catchip:hover {
   background: var(--chip);
@@ -423,11 +465,24 @@ footer {
   flex: none;
 }
 .diagram-box {
+  /* Deliberately not var(--panel2)/var(--ink) - the canvases inside are transparent and
+     drawn (in app.js/canvas-utils.js) assuming a light background behind them, so this
+     stays a fixed light color+text in both themes (var(--ink) alone would flip to a
+     near-white tone in dark mode, unreadable on this permanently-light background - this
+     previously made <summary> text nearly invisible in dark mode). */
   background: #fbfcfe;
+  color: #1c2430;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
   margin-bottom: 12px;
+}
+/* .diagram-box-themed opts back into the normal theme-aware panel colors - for the one
+   diagram-box (stack preview) whose canvas draws its own colors from the theme (see
+   #stackCanvas above) instead of assuming a fixed light background. */
+.diagram-box.diagram-box-themed {
+  background: var(--panel2);
+  color: var(--ink);
 }
 .diagram-box svg {
   width: 100%;
@@ -448,12 +503,61 @@ footer {
   text-align: center;
   margin-top: 4px;
 }
-svg text {
-  font-family:
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+/* Two diagram-boxes side by side (wraps to stacked on narrow screens). Labels for both
+   live in an HTML <ul class="diagram-legend"> beside the image rather than baked into the
+   SVG/canvas - SVG text scales with the viewBox (so it blows up when stretched wide) and
+   canvas text has to be redrawn manually, so neither reliably matches ordinary page text;
+   real HTML text just uses the page's normal font sizing like everything else. */
+.diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.diagram-row > .diagram-box {
+  flex: 1 1 260px;
+  margin-bottom: 0;
+}
+.diagram-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-content svg {
+  width: 155px;
+  height: auto;
+  flex: 0 0 auto;
+  display: block;
+}
+.diagram-content canvas.port-face-canvas {
+  width: 190px;
+  height: 190px;
+  flex: 0 0 auto;
+}
+.diagram-legend {
+  /* Fixed dark color, not var(--ink) - this sits on .diagram-box's permanently-light
+     background in both themes, but --ink flips to a near-white tone in dark mode, which
+     would put barely-visible light text on that light background. */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: #1c2430;
+  flex: 1 1 130px;
+}
+.diagram-legend li {
+  margin-bottom: 5px;
+  line-height: 1.35;
+}
+.diagram-legend .legend-note {
+  color: #c0392b; /* fixed, same reasoning as .diagram-legend above */
+  font-weight: 600;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
 }
