@@ -1,11 +1,18 @@
-function waltherViscosityAt(cSt40, cSt100, tempC) {
-  cSt40 = Math.max(cSt40, 1.01);
-  cSt100 = Math.max(cSt100, 1.01);
-  const T1 = 313.15,
-    T2 = 373.15,
-    Tq = tempC + 273.15;
-  const y1 = Math.log10(Math.log10(cSt40 + 0.7)),
-    y2 = Math.log10(Math.log10(cSt100 + 0.7));
+// Generalized two-point Walther/ASTM D341 viscosity-temperature interpolation: given
+// viscosity v1 at temp t1 and v2 at t2 (any two temps, not necessarily 40/100 - matches
+// whatever calibration points the active oil card was given), returns viscosity at temp
+// tq. log10(log10(v+0.7)) is linear in log10(T_kelvin). Same formula as the Oil Viscosity
+// Comparison page's own waltherViscAt (algebraically identical B/A - slope/intercept).
+// Inputs/output are floored so a degenerate calibration can't hand the force solver a
+// zero or negative viscosity.
+export function waltherViscAt(t1, v1, t2, v2, tq) {
+  v1 = Math.max(v1, 1.01);
+  v2 = Math.max(v2, 1.01);
+  const T1 = t1 + 273.15,
+    T2 = t2 + 273.15,
+    Tq = tq + 273.15;
+  const y1 = Math.log10(Math.log10(v1 + 0.7)),
+    y2 = Math.log10(Math.log10(v2 + 0.7));
   const x1 = Math.log10(T1),
     x2 = Math.log10(T2);
   const B = (y1 - y2) / (x2 - x1);
@@ -238,7 +245,7 @@ export function solveForceAtVelocity(u, stack, geom, fluid, valveType, Fmax) {
   const Avalve = valveArea(geom, valveType);
   const Apress = pressurizedArea(geom);
   const Q = u * 1e-3 * (Avalve * 1e-6);
-  const cStAtTemp = waltherViscosityAt(fluid.cSt40, fluid.cSt100, fluid.tempC);
+  const cStAtTemp = waltherViscAt(fluid.t1, fluid.v1, fluid.t2, fluid.v2, fluid.tempC);
   const mu = cStAtTemp * 1e-6 * fluid.rho; // Pa*s
 
   let lastRe = 0;

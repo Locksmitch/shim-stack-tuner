@@ -1,368 +1,2857 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shim Stack Tuner — Valving Toolbox</title>
-<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
-<link rel="stylesheet" href="theme.css">
-<link rel="stylesheet" href="styles.css">
-</head>
-<body>
-<nav class="sitenav">
-  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
-  <div class="sitenav-links">
-    <a href="shim-stack-tuner.html" class="active">Shim Stack Tuner</a>
-    <a href="spring-calculator.html">Spring Curve Calculator</a>
-    <a href="shim-delta.html">Shim Delta Tool</a>
-    <a href="oil-viscosity.html">Oil Viscosity</a>
-    <a href="spring-damper-curve.html">Wheel Force</a>
-  </div>
-  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
-</nav>
-<header>
-  <div class="wrap" style="padding:0;">
-    <h1>Shim Stack Tuner</h1>
-    <p>An independent, open, offline shim-stack &amp; damping-force calculator for shock/fork valving — inspired by the classic Shim ReStackor workflow. Runs entirely in your browser, no install, no internet needed.</p>
-  </div>
-</header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shim Stack Tuner — Valving Toolbox</title>
+    <script>
+      (function () {
+        var t = localStorage.getItem('sst_theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <nav class="sitenav">
+      <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+      <div class="sitenav-links">
+        <a href="shim-stack-tuner.html" class="active">Shim Stack Tuner</a>
+        <a href="#p-spring-calc">Spring Curve Calculator</a>
+        <a href="#p-shim-delta">Shim Delta Tool</a>
+        <a href="#p-wheel-force">Wheel Force</a>
+      </div>
+      <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    </nav>
+    <header>
+      <div class="wrap" style="padding: 0">
+        <h1>Shim Stack Tuner</h1>
+      </div>
+    </header>
 
-<div class="wrap">
+    <div class="wrap">
+      <div id="warnBox" class="warn-box"></div>
 
-  <div class="units-bar">
-    <strong>Quick-set all dimension fields:</strong>
-    <select id="bulkUnit">
-      <option value="" selected disabled>choose…</option>
-      <option value="mm">All metric — mm</option>
-      <option value="in">All imperial — in</option>
-    </select>
-    <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Every geometry &amp; shim field has its own mm/in dropdown, so you can mix parts from different manufacturers — a metric damper body with imperial shims, for example. This selector is just a bulk shortcut; individual fields always stay overridable.</p></div></details>
-    <button class="small" id="resetLayoutBtn" title="Restore default tile positions and expand all tiles">Reset layout</button>
-  </div>
+      <div class="dropcol" id="colMain">
+        <!-- MAIN WORKSPACE: everything you touch while iterating on a stack, together in one tile -->
+        <div class="panel" id="p-workspace">
+          <h2>
+            <span class="chev">▾</span>Shim stack &amp; damping force<span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div class="workspace-grid">
+            <!-- Left column: stack preview canvas first (so its top lines up with the chart's,
+                 aligned below), then everything about the shim list flowing right beneath it. -->
+            <div class="workspace-col">
+              <details class="diagram-box diagram-box-themed" open>
+                <summary>Live stack preview &amp; deflection animation — updates as you edit</summary>
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in
+                      stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag
+                      the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge
+                      until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the
+                      floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face
+                      stiffen the stack most, since fluid pressure loads the outer edge near the port.
+                    </p>
+                  </div>
+                </details>
+                <div class="btnrow" style="margin: 0 0 6px">
+                  <span style="flex: 1"></span>
+                  <button class="small" id="popoutStackBtn" type="button">⛶ Pop out</button>
+                </div>
+                <canvas id="stackCanvas" style="height: 260px"></canvas>
+                <div class="slider-row">
+                  <label style="min-width: 140px; margin: 0; font-size: 12px"
+                    >Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label
+                  >
+                  <input type="range" id="forceSlider" min="0" max="400" step="1" value="0" />
+                </div>
+              </details>
 
-
-  <div id="warnBox" class="warn-box"></div>
-
-  <div class="dropcol" id="colMain">
-    <!-- MAIN WORKSPACE: everything you touch while iterating on a stack, together in one tile -->
-    <div class="panel" id="p-workspace">
-      <h2><span class="chev">▾</span>Shim stack &amp; damping force<span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
-      <div class="workspace-grid">
-        <div class="workspace-col">
-          <div class="field" style="max-width:260px;"><label>Clamp diameter, D.clamp (where it bends from) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>The OD of the clamp washer / piston land that pins the stack — only the material outside this diameter flexes, so it's the true inner boundary of the bending model (marked on the live preview below). Make it larger to shorten the bending span (stiffer), smaller for a longer, softer span. It must be smaller than the largest shim OD and at least the shim ID (set in the setup tile).</p></div></details></label>
-            <div class="unitpair"><input type="number" id="clampDia" value="12" step="0.1"><select class="fieldUnit" data-for="clampDia" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="btnrow" style="margin-top:10px; align-items:center;">
-            <button class="small" id="addShimRowBtn">+ Add shim row</button>
-            <button class="small" id="loadExampleBtn">Load metric example</button>
-            <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
-            <details class="hint-details"><summary class="hint-bubble" aria-label="How to list shims">?</summary><div class="hint-popover"><p>List shims from the valve face outward — group identical shims using the Count column. Each row has its own unit, so a metric shim and an imported inch shim can sit in the same stack. Set a row to <b>Delta T</b> to model a three-lobed shim with less effective bending stiffness than an equivalent round disc. If your stack has a separate clamp washer and/or nut, add them as regular rows too.</p></div></details>
-          </div>
-          <p class="hint" id="stackHeightBox" style="margin:8px 0 4px;">Stack height: <b id="stackHeightVal">—</b><span id="stackHeightDelta"></span></p>
-          <div class="stack-table-wrap">
-            <table id="shimTable">
-              <thead><tr><th class="col-count">Count</th><th class="col-diam">Diameter</th><th class="col-dec">Thickness</th><th class="col-dec">Float<details class="hint-details" style="margin-left:4px"><summary class="hint-bubble" aria-label="What Float does">?</summary><div class="hint-popover"><p><b>Float</b> is normally 0 (shim always bonded/engaged, the default). Give a "backup" or crossover shim a Float &gt; 0 and it stays disengaged — contributing nothing — until the stack's local deflection right at that shim's own radius reaches the Float value, at which point it locks in and stiffens the stack from then on. That's what lets a stack be genuinely soft at low speed and stiffen at high speed (or vice versa), not just scaled up or down.</p></div></details></th><th style="width:80px">Type</th><th class="col-unit">Unit</th><th></th></tr></thead>
-              <tbody id="shimBody"></tbody>
-            </table>
-          </div>
-
-          <details class="diagram-box diagram-box-themed" open>
-            <summary>Live stack preview &amp; deflection animation — updates as you edit</summary>
-            <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Drawn straight from your shim table: each colored band is one row (clamp/nut rows in tan), in stack order, clamped at the ID on the left and bending along the computed deflection curve. Drag the slider to load the stack. A Float &gt; 0 row sits above a real air gap (lighter, dashed edge until it engages) — the stack below bends up, closes the gap from the outer edge, and carries the floating shim from there. Shim #1 sits on the valve face; bigger/thicker shims near the face stiffen the stack most, since fluid pressure loads the outer edge near the port.</p></div></details>
-            <canvas id="stackCanvas" style="height:260px"></canvas>
-            <div class="slider-row">
-              <label style="min-width:140px; margin:0; font-size:12px;">Force on stack: <b id="sliderVal">0</b> <span class="uforce">N</span></label>
-              <input type="range" id="forceSlider" min="0" max="400" step="1" value="0">
+              <div class="field" style="max-width: 260px; margin-top: 12px">
+                <label
+                  >Clamp diameter, D.clamp (where it bends from)
+                  <details class="hint-details">
+                    <summary class="hint-bubble" aria-label="More info">?</summary>
+                    <div class="hint-popover">
+                      <p>
+                        The OD of the clamp washer / piston land that pins the stack — only the material outside this
+                        diameter flexes, so it's the true inner boundary of the bending model (marked on the live
+                        preview above). Make it larger to shorten the bending span (stiffer), smaller for a longer,
+                        softer span. It must be smaller than the largest shim OD and at least the shim ID (set in the
+                        setup tile). If the last two-or-more rows in the table share the same OD (a clamp washer and/or
+                        nut modeled as regular rows), this auto-fills to match them — type a value in here directly to
+                        override that and set it by hand instead.
+                      </p>
+                    </div>
+                  </details></label
+                >
+                <div class="unitpair">
+                  <input type="number" id="clampDia" value="12" step="0.1" /><select
+                    class="fieldUnit"
+                    data-for="clampDia"
+                    data-unit="mm"
+                  >
+                    <option value="mm">mm</option>
+                    <option value="in">in</option>
+                  </select>
+                </div>
+                <p class="hint" id="clampDiaAutoNote" style="margin-top: 2px"></p>
+              </div>
+              <div class="btnrow" style="margin-top: 10px; align-items: center">
+                <button class="small" id="addShimRowBtn">+ Add shim row</button>
+                <button class="small" id="loadExampleBtn">Load metric example</button>
+                <button class="small" id="loadCrossoverBtn">Load crossover-shim example</button>
+                <span style="flex: 1"></span>
+                <button class="small" id="popoutShimsBtn" type="button">⛶ Pop out table</button>
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="How to list shims">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      List shims from the valve face outward — group identical shims using the Count column. Each row
+                      has its own unit, so a metric shim and an imported inch shim can sit in the same stack. Set a row
+                      to <b>Delta T</b> to model a three-lobed shim with less effective bending stiffness than an
+                      equivalent round disc. If your stack has a separate clamp washer and/or nut, add them as regular
+                      rows too.
+                    </p>
+                  </div>
+                </details>
+              </div>
+              <p class="hint" id="stackHeightBox" style="margin: 8px 0 4px">
+                Stack height: <b id="stackHeightVal">—</b><span id="stackHeightDelta"></span>
+              </p>
+              <div class="stack-table-wrap">
+                <table id="shimTable">
+                  <thead>
+                    <tr>
+                      <th class="col-count">Count</th>
+                      <th class="col-diam">Diameter</th>
+                      <th class="col-dec">Thickness</th>
+                      <th class="col-dec">
+                        Float
+                        <details class="hint-details" style="margin-left: 4px">
+                          <summary class="hint-bubble" aria-label="What Float does">?</summary>
+                          <div class="hint-popover">
+                            <p>
+                              <b>Float</b> is normally 0 (shim always bonded/engaged, the default). Give a "backup" or
+                              crossover shim a Float &gt; 0 and it stays disengaged — contributing nothing — until the
+                              stack's local deflection right at that shim's own radius reaches the Float value, at which
+                              point it locks in and stiffens the stack from then on. That's what lets a stack be
+                              genuinely soft at low speed and stiffen at high speed (or vice versa), not just scaled up
+                              or down.
+                            </p>
+                          </div>
+                        </details>
+                      </th>
+                      <th style="width: 80px">Type</th>
+                      <th class="col-unit">Unit</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="shimBody"></tbody>
+                </table>
+              </div>
             </div>
-          </details>
+
+            <!-- Right column: force chart first (top lines up with the stack preview's), with
+                 its axis-scale controls tucked into a compact popover on the chart's own
+                 button row instead of a full-width control strip; pins/target/optimize and
+                 the results table flow directly beneath. -->
+            <div class="workspace-col">
+              <details class="diagram-box diagram-box-themed" open>
+                <summary>Live force vs. shaft velocity chart — updates as you edit</summary>
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      The damping-force curve for the current stack, computed across the shaft-speed range set below.
+                      Pinned comparison curves and the draggable target curve are controlled from the panel underneath
+                      this chart; axis scale is the small ⚙ next to the pop-out button.
+                    </p>
+                  </div>
+                </details>
+                <div class="btnrow" style="margin: 0 0 6px">
+                  <details class="hint-details">
+                    <summary class="hint-bubble" aria-label="Axis settings">⚙</summary>
+                    <div class="hint-popover" style="width: 210px">
+                      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
+                        <label style="margin: 0; font-size: 12px; flex: 1"><b>Force axis (Y)</b></label>
+                        <select id="axisMode" style="width: auto">
+                          <option value="auto" selected>Auto</option>
+                          <option value="fixed">Fixed</option>
+                        </select>
+                      </div>
+                      <div
+                        id="axisMaxWrap"
+                        style="display: none; align-items: center; gap: 4px; margin-bottom: 6px; font-size: 11.5px"
+                      >
+                        min <input type="number" id="axisMinF" style="width: 55px" step="50" value="0" /> max
+                        <input type="number" id="axisMaxF" style="width: 55px" step="50" />
+                        <span class="uforce">N</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
+                        <label style="margin: 0; font-size: 12px; flex: 1"><b>Speed axis (X)</b></label>
+                        <select id="xAxisMode" style="width: auto">
+                          <option value="auto" selected>Auto</option>
+                          <option value="fixed">Fixed</option>
+                        </select>
+                      </div>
+                      <div id="xAxisMaxWrap" style="display: none; align-items: center; gap: 4px; font-size: 11.5px">
+                        max <input type="number" id="axisMaxU" style="width: 55px" step="100" />
+                        <span class="uvel">mm/s</span>
+                      </div>
+                    </div>
+                  </details>
+                  <span style="flex: 1"></span>
+                  <button class="small" id="popoutForceBtn" type="button">⛶ Pop out</button>
+                </div>
+                <canvas id="forceCanvas" style="height: 260px"></canvas>
+              </details>
+
+              <div class="btnrow" style="align-items: center; margin-top: 12px">
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="About pins and the target curve">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      <b>Click any line's legend entry to hide/show it.</b> Pin the current curve before editing to keep
+                      it on the chart for comparison. Turn on <b>Target curve</b> to lay a desired curve over the chart:
+                      the grey line is the stock tune you loaded (reference), the dashed magenta line is your target —
+                      drag its dots up or down to say what force you want at each speed. The readout shows how far the
+                      current stack is from that target; <b>Optimize to target</b> searches real FOX shims to close that
+                      gap. Pins, axis, and target are remembered between sessions.
+                    </p>
+                  </div>
+                </details>
+                <input type="text" id="pinName" placeholder="curve label (optional)" style="width: 150px" />
+                <button class="small" id="pinCurveBtn">📌 Pin curve</button>
+                <button class="small danger" id="clearPinsBtn">Clear pinned</button>
+              </div>
+              <div id="pinList" style="display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0"></div>
+              <div class="btnrow" style="align-items: center; margin-top: 0">
+                <label class="live-toggle"><input type="checkbox" id="targetOn" /> <b>Target curve</b></label>
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover"><p>Drag the dots to shape what you want.</p></div>
+                </details>
+                <button class="small" id="resetTargetBtn">Reset to current</button>
+                <button class="small danger" id="clearTargetBtn">Clear target</button>
+                <span style="flex: 1"></span>
+                <span id="targetReadout" class="hint" style="margin: 0"></span>
+              </div>
+              <div class="btnrow" style="align-items: center; margin-top: 6px">
+                <button class="small primary" id="optBtn">🔍 Optimize to target</button>
+                <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
+                <span id="optStatus" class="hint" style="margin: 0"></span>
+              </div>
+              <div id="optResults" style="margin: 6px 0"></div>
+              <div class="datatable-wrap">
+                <table id="resultsTable">
+                  <thead>
+                    <tr>
+                      <th>Shaft velocity (m/s)</th>
+                      <th>Shaft velocity (in/s)</th>
+                      <th>Damping force (<span class="uforce">N</span>)</th>
+                      <th>Damping coeff. (<span class="uforce">N</span>·s/<span class="ulen">mm</span>)</th>
+                      <th>Reynolds #</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="workspace-col">
-          <div class="btnrow" style="align-items:center; margin-top:0;">
-            <details class="hint-details"><summary class="hint-bubble" aria-label="About the chart, pins, and target curve">?</summary><div class="hint-popover"><p>Fix the force (Y) axis min/max and/or the shaft-speed (X) axis max to keep the scale constant while you tune, so changes read as real movement instead of the chart rescaling — handy for zooming into the low-speed region. <b>Click any line's legend entry to hide/show it.</b> Pin the current curve before editing to keep it on the chart for comparison. Turn on <b>Target curve</b> to lay a desired curve over the chart: the grey line is the stock tune you loaded (reference), the dashed magenta line is your target — drag its dots up or down to say what force you want at each speed. The readout shows how far the current stack is from that target; <b>Optimize to target</b> searches real FOX shims to close that gap. Pins, axis, and target are remembered between sessions.</p></div></details>
-            <label style="margin:0; font-size:12.5px;"><b>Force axis (Y)</b></label>
-            <select id="axisMode" style="width:auto;">
-              <option value="auto" selected>Auto-scale</option>
-              <option value="fixed">Fixed max</option>
+        <div class="panel" id="p-oil">
+          <h2>
+            <span class="chev">▾</span>Oil viscosity comparison
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Enter two calibration points per oil (typically cSt @40°C and @100°C, or any other pair) to plot
+                  viscosity across a temperature range, compute Viscosity Index, and probe any temperature. Check "Use
+                  for shim-stack calc" on one oil to make it the fluid driving the damping-force curve below — only one
+                  can be active at a time.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div class="oil-compare">
+            <div class="oil-grid">
+              <div class="card">
+                <label class="oil-active-toggle"
+                  ><input type="checkbox" id="oilActive1" checked /> Use for shim-stack calc</label
+                >
+                <select class="oilPresetSel" data-suffix="">
+                  <option value="">— custom —</option>
+                </select>
+                <input class="oil-name-input" id="oil1_name" value="Oil 1" />
+                <div class="field-row">
+                  <div class="field"><label>Temp 1 (°C)</label><input type="number" id="temp1_m" value="40" /></div>
+                  <div class="field"><label>Visc 1 (cSt)</label><input type="number" id="visc1_m" value="22" /></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label>Temp 2 (°C)</label><input type="number" id="temp2_m" value="100" /></div>
+                  <div class="field"><label>Visc 2 (cSt)</label><input type="number" id="visc2_m" value="4.29" /></div>
+                </div>
+                <div class="probe-box">
+                  <div class="field">
+                    <label>Probe temperature (°C)</label><input type="number" id="tempx_m" value="40" />
+                  </div>
+                  <div class="probe-out-grid">
+                    <div class="probe-out">
+                      <div class="probe-out-label">cSt</div>
+                      <div class="probe-out-val" id="viscx_m" style="color: #1c91c0">—</div>
+                    </div>
+                    <div class="probe-out">
+                      <div class="probe-out-label">SUS</div>
+                      <div class="probe-out-val" id="viscx_i" style="color: #1c91c0">—</div>
+                    </div>
+                    <div class="probe-out">
+                      <div class="probe-out-label">VI</div>
+                      <div class="probe-out-val" id="vi_1" style="color: #1c91c0">—</div>
+                    </div>
+                  </div>
+                  <div class="vi-note" id="procedure_1"></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <label class="oil-active-toggle"
+                  ><input type="checkbox" id="oilActive2" /> Use for shim-stack calc</label
+                >
+                <select class="oilPresetSel" data-suffix="_2">
+                  <option value="">— custom —</option>
+                </select>
+                <input class="oil-name-input" id="oil2_name" value="Oil 2" />
+                <div class="field-row">
+                  <div class="field"><label>Temp 1 (°C)</label><input type="number" id="temp1_m_2" value="40" /></div>
+                  <div class="field"><label>Visc 1 (cSt)</label><input type="number" id="visc1_m_2" value="32" /></div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label>Temp 2 (°C)</label><input type="number" id="temp2_m_2" value="100" /></div>
+                  <div class="field">
+                    <label>Visc 2 (cSt)</label><input type="number" id="visc2_m_2" value="5.36" />
+                  </div>
+                </div>
+                <div class="probe-box">
+                  <div class="field">
+                    <label>Probe temperature (°C)</label><input type="number" id="tempx_m_2" value="40" />
+                  </div>
+                  <div class="probe-out-grid">
+                    <div class="probe-out">
+                      <div class="probe-out-label">cSt</div>
+                      <div class="probe-out-val" id="viscx_m_2" style="color: #d33682">—</div>
+                    </div>
+                    <div class="probe-out">
+                      <div class="probe-out-label">SUS</div>
+                      <div class="probe-out-val" id="viscx_i_2" style="color: #d33682">—</div>
+                    </div>
+                    <div class="probe-out">
+                      <div class="probe-out-label">VI</div>
+                      <div class="probe-out-val" id="vi_2" style="color: #d33682">—</div>
+                    </div>
+                  </div>
+                  <div class="vi-note" id="procedure_2"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-controls">
+                <div class="legend">
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #1c91c0"></div>
+                    <span id="leg1name">Oil 1</span>
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #d33682"></div>
+                    <span id="leg2name">Oil 2</span>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <label class="toggle-row"
+                    ><input type="checkbox" id="toggle_crosshair" checked /> Follow mouse (uncheck to only update on
+                    click)</label
+                  >
+                  <button class="small" id="popoutOilBtn" type="button">⛶ Pop out</button>
+                </div>
+              </div>
+              <div class="canvas-wrap"><canvas id="oilChart"></canvas></div>
+              <div class="hover-readout" id="hoverReadout">Hover or click the chart to probe a temperature.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="p-geom">
+          <h2>
+            <span class="chev">▾</span>Damper &amp; valve setup
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Fill these in once per valve, then move on to the tuning tile above. Everything here is remembered per
+                  valve setup.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+
+          <div class="btnrow" style="align-items: center; margin-top: 0">
+            <select id="valveSetups" style="width: auto; min-width: 150px">
+              <option value="" selected disabled>saved valve setups…</option>
             </select>
-            <span id="axisMaxWrap" style="display:none;">
-              min <input type="number" id="axisMinF" style="width:80px;" step="50" value="0">
-              max <input type="number" id="axisMaxF" style="width:90px;" step="50"> <span class="uforce">N</span>
-            </span>
-            <label style="margin:0 0 0 10px; font-size:12.5px;"><b>Speed axis (X)</b></label>
-            <select id="xAxisMode" style="width:auto;">
-              <option value="auto" selected>Auto-scale</option>
-              <option value="fixed">Fixed max</option>
+            <input type="text" id="valveSetupName" placeholder="setup name" style="width: 130px" />
+            <button class="small" id="saveValveSetupBtn">Save setup</button>
+            <button class="small danger" id="deleteValveSetupBtn">Delete</button>
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Save this panel's damper/valve dimensions (plus valve type) under a name and reload them any time —
+                  stored by your browser on this computer, nothing uploaded. Survives closing the file.
+                </p>
+              </div>
+            </details>
+          </div>
+          <p class="hint" id="valveSetupHint"></p>
+
+          <div class="btnrow" style="align-items: center; gap: 6px; margin-top: 14px">
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="How to load a stock tune">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Pick a <b>Product</b> → <b>Valve</b> → <b>Stock tune</b> to load a real FOX stack straight from the
+                  valve-stack drawings (all shims 0.252in ID, listed valve-face first; counts cross-checked against each
+                  drawing's stack-height dimension) into the shim table in the tuning tile below. Choosing a valve also
+                  sets its valve type and loads its saved (or default, approximate) port geometry — enter your measured
+                  piston/port dimensions below and press "Save this valve's geometry" to keep them.
+                </p>
+              </div>
+            </details>
+            <label style="margin: 0; font-size: 12.5px; color: var(--ink)"><b>Product</b></label>
+            <select id="prodSel" style="width: auto; min-width: 210px"></select>
+            <label style="margin: 0; font-size: 12.5px; color: var(--ink)"><b>Valve</b></label>
+            <select id="valveSel" style="width: auto"></select>
+            <label style="margin: 0; font-size: 12.5px; color: var(--ink)"><b>Stock tune</b></label>
+            <select id="tuneSel" style="width: auto"></select>
+          </div>
+          <div id="catalogLoadWarn" class="hint" style="display: none; color: var(--warn)"></div>
+          <div class="btnrow" style="align-items: center; gap: 6px; margin-top: 6px">
+            <button class="small" id="saveValveGeomBtn">Save this valve's geometry</button>
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Choosing a valve above loads its saved (or default, approximate) port geometry into the Damper &amp;
+                  valve setup fields below. Enter your own measured D.rod, D.valve, r.port, d.port, w.port etc., then
+                  press this button to keep them — stored per product/valve in your browser, reloaded automatically next
+                  time you pick that same valve.
+                </p>
+              </div>
+            </details>
+            <span class="hint" id="geomSaveHint" style="margin: 0"></span>
+          </div>
+          <p class="hint" id="presetNote"></p>
+          <details class="diagram-box" style="margin-top: 6px">
+            <summary>Usable shim catalog for this valve <span class="chip" id="catalogCount"></span></summary>
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Each button is one real FOX part (OD × thickness, inches) proven from a drawing, sharing this valve's
+                  ID and within its OD bounds — the pool the optimizer will draw from. Clicking adds one to the stack in
+                  size order; adjust count or position with the row controls in the tuning tile below. The list grows as
+                  more products/tunes are added; nothing outside it can be used.
+                </p>
+              </div>
+            </details>
+            <p class="hint" id="catalogNote" style="margin: 6px 2px"></p>
+            <div id="catalogChips" style="display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 2px"></div>
+          </details>
+
+          <div class="diagram-row" style="margin-top: 14px">
+            <details class="diagram-box" open>
+              <summary>Reference diagram — what to measure</summary>
+              <div class="diagram-content">
+                <svg viewBox="0 0 340 250" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <marker
+                      id="ar1"
+                      viewBox="0 0 10 10"
+                      refX="5"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto-start-reverse"
+                    >
+                      <path d="M0,0 L10,5 L0,10 z" fill="#5b6472" />
+                    </marker>
+                    <marker
+                      id="ar2"
+                      viewBox="0 0 10 10"
+                      refX="5"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto-start-reverse"
+                    >
+                      <path d="M0,0 L10,5 L0,10 z" fill="#2f6fed" />
+                    </marker>
+                  </defs>
+                  <!-- shaft/rod, drawn full-height behind the piston/stack so it reads as passing through them - exits at the bottom -->
+                  <rect x="155" y="10" width="30" height="230" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5" />
+                  <!-- compression retaining nut -->
+                  <rect
+                    x="157"
+                    y="10"
+                    width="26"
+                    height="16"
+                    rx="4"
+                    fill="#cfd8e3"
+                    stroke="#1c2430"
+                    stroke-width="1.5"
+                  />
+                  <!-- compression shim stack, above the piston, tapering outward -->
+                  <rect x="152" y="28" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="142" y="34" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="133" y="40" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="125" y="46" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="118" y="52" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="112" y="58" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <!-- piston / valve - D.valve is measured directly across it, not a separate bore outline -->
+                  <rect
+                    x="110"
+                    y="64"
+                    width="120"
+                    height="26"
+                    rx="3"
+                    fill="#c7d6fb"
+                    stroke="#2f6fed"
+                    stroke-width="1.5"
+                  />
+                  <!-- flow ports through the piston -->
+                  <rect x="130" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1" />
+                  <rect x="200" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1" />
+                  <!-- rebound shim stack, below the piston, tapering outward -->
+                  <rect x="112" y="92" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="118" y="98" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="125" y="104" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="133" y="110" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="142" y="116" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <rect x="152" y="122" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1" />
+                  <!-- rebound retaining nut -->
+                  <rect
+                    x="157"
+                    y="128"
+                    width="26"
+                    height="16"
+                    rx="4"
+                    fill="#cfd8e3"
+                    stroke="#1c2430"
+                    stroke-width="1.5"
+                  />
+                  <!-- D.rod dimension -->
+                  <line
+                    x1="155"
+                    y1="200"
+                    x2="185"
+                    y2="200"
+                    stroke="#5b6472"
+                    stroke-width="1.5"
+                    marker-start="url(#ar1)"
+                    marker-end="url(#ar1)"
+                  />
+                  <!-- D.valve dimension, marked directly on the piston (not the bore) -->
+                  <line
+                    x1="110"
+                    y1="77"
+                    x2="230"
+                    y2="77"
+                    stroke="#2f6fed"
+                    stroke-width="1.5"
+                    marker-start="url(#ar2)"
+                    marker-end="url(#ar2)"
+                  />
+                </svg>
+                <ul class="diagram-legend">
+                  <li>
+                    <span class="legend-swatch" style="background: #5b6472"></span><b>D.rod</b> — shaft/rod diameter
+                    through the seal
+                  </li>
+                  <li>
+                    <span class="legend-swatch" style="background: #2f6fed"></span><b>D.valve</b> — outer diameter of
+                    the valve/piston
+                  </li>
+                  <li>
+                    Shims above the piston = <b>compression</b>; below = <b>rebound</b>. Simplified, not to scale.
+                  </li>
+                </ul>
+              </div>
+            </details>
+
+            <details class="diagram-box" open>
+              <summary>Live diagram — valve port face (updates as you edit)</summary>
+              <div class="diagram-content">
+                <canvas id="portFaceCanvas" class="port-face-canvas"></canvas>
+                <ul class="diagram-legend">
+                  <li>
+                    <span class="legend-swatch" style="background: #c0392b"></span><b>r.port</b> — center to the port's
+                    inner edge
+                  </li>
+                  <li>
+                    <span class="legend-swatch" style="background: #0f9d58"></span><b>d.port</b> — port's radial depth
+                  </li>
+                  <li>
+                    <span class="legend-swatch" style="background: #2f6fed"></span><b>w.port</b> — port's width at the
+                    outer edge
+                  </li>
+                  <li><span class="legend-swatch" style="background: #5b6472"></span><b>shaft</b> — D.rod bore</li>
+                  <li id="portFaceCount" style="margin-top: 6px"></li>
+                  <li id="portFaceNote" class="legend-note" style="display: none"></li>
+                </ul>
+              </div>
+            </details>
+          </div>
+
+          <div class="checklist">
+            <div class="field">
+              <label>1. Rod diameter D.rod</label>
+              <div class="unitpair">
+                <input type="number" id="dRod" value="16" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="dRod"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>2. Valve/body diameter D.valve</label>
+              <div class="unitpair">
+                <input type="number" id="dValve" value="50" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="dValve"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>3. Valve type</label>
+              <select id="valveType">
+                <option value="base">Base valve / compression adjuster</option>
+                <option value="mainComp" selected>Main / mid-valve — compression</option>
+                <option value="mainRebound">Main / mid-valve — rebound</option>
+              </select>
+            </div>
+            <div class="field">
+              <label
+                >4. Shim ID, D.hole (hole for the shaft/post)
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      The <b>shim ID</b> is just the center hole (must clear the shaft). Clamp diameter — the other half
+                      of the bending model — has moved to the tuning tile above, next to the shim table it directly
+                      affects.
+                    </p>
+                  </div>
+                </details></label
+              >
+              <div class="unitpair">
+                <input type="number" id="stackID" value="12" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="stackID"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <details class="diagram-box">
+            <summary>📷 Estimate r.port / d.port / w.port from a photo</summary>
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="How to use the photo tool">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Upload a straight-on photo of the valve face. Click
+                  <b>3 points anywhere along the valve's outer edge</b> to set the scale from your D.valve value above —
+                  any 3 points on the rim will do, no need to find the center or opposite points. Then click all the way
+                  around <b>one port's actual boundary</b> — as many points as you like, rounded/kidney/D-shaped ports
+                  are fine — and press "Finish this port". Trace a couple more ports for a more reliable average, or
+                  just note how many more you can see. Each click snaps to the nearest sharp edge in the photo
+                  automatically. Works best on a reasonably straight-on shot; a steep angle will skew the numbers.
+                </p>
+              </div>
+            </details>
+            <input type="file" id="photoFile" accept="image/*" />
+            <label class="live-toggle" style="margin-top: 6px"
+              ><input type="checkbox" id="photoSnapToggle" checked /> 🧲 Snap clicks to the nearest edge</label
+            >
+            <canvas id="photoCanvas" style="height: 360px; cursor: crosshair; display: none"></canvas>
+            <p class="hint" id="photoStepHint" style="margin-top: 6px">Choose a photo to begin.</p>
+            <div class="btnrow" style="margin-top: 6px">
+              <button class="small" id="photoUndoBtn" type="button" disabled>Undo last point</button>
+              <button class="small" id="photoFinishPortBtn" type="button" disabled>Finish this port ✓</button>
+              <button class="small danger" id="photoResetBtn" type="button" disabled>Start over</button>
+            </div>
+            <p class="hint" id="photoPortsHint"></p>
+            <div class="field" style="max-width: 280px; margin-top: 6px">
+              <label>Other ports visible but not traced (assumed identical)</label>
+              <input type="number" id="photoOtherPorts" value="0" min="0" step="1" />
+            </div>
+            <div class="btnrow" style="margin-top: 6px; align-items: center">
+              <button class="small primary" id="photoApplyBtn" type="button" disabled>
+                Apply to r.port / d.port / w.port
+              </button>
+              <label class="live-toggle"><input type="checkbox" id="photoApplyNPort" checked /> also set N.port</label>
+            </div>
+          </details>
+
+          <div class="checklist">
+            <div class="field">
+              <label
+                >5. r.port, port inner radius
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="Where these names come from">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      These match the D.rod / D.valve / r.port / d.port / w.port / N.port / d.thrt / N.thrt names used
+                      in the original Shim ReStackor manual, so you can copy values straight across if you have them.
+                    </p>
+                  </div>
+                </details></label
+              >
+              <div class="unitpair">
+                <input type="number" id="rPort" value="10.5" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="rPort"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>6. d.port, port radial length</label>
+              <div class="unitpair">
+                <input type="number" id="dPort" value="9" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="dPort"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>7. w.port, port perimeter width</label>
+              <div class="unitpair">
+                <input type="number" id="wPort" value="12" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="wPort"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>8. N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1" />
+            </div>
+            <div class="field">
+              <label>9. d.thrt, throat dia — 0 = none</label>
+              <div class="unitpair">
+                <input type="number" id="dThrt" value="0" step="0.1" /><select
+                  class="fieldUnit"
+                  data-for="dThrt"
+                  data-unit="mm"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">in</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>10. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1" />
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="p-advanced">
+          <h2>
+            <span class="chev">▾</span>Oil, shim material &amp; calculation settings <span class="chip">advanced</span>
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Collapsed by default — reasonable defaults are already loaded. Expand to dial in your actual shim
+                  spec, calculation range, or to save/load a config file. Oil viscosity itself is set in the Oil
+                  viscosity comparison panel above — pick which of the two oils is active there.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div class="row4">
+            <div class="field">
+              <label
+                >Oil density (kg/m³)
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      Oil density is always kg/m³ — it isn't a shim/geometry dimension so it's not affected by the
+                      dimension unit selectors.
+                    </p>
+                  </div>
+                </details></label
+              ><input type="number" id="rho" value="850" step="1" />
+            </div>
+            <div class="field">
+              <label
+                >Oil temperature (°C)
+                <details class="hint-details">
+                  <summary class="hint-bubble" aria-label="More info">?</summary>
+                  <div class="hint-popover">
+                    <p>
+                      The operating temperature the damping calc actually uses. Defaults to 21°C whenever you switch
+                      which oil is active in the comparison panel above — type a value here directly to override that
+                      and set it by hand instead.
+                    </p>
+                  </div>
+                </details></label
+              ><input type="number" id="oilTemp" value="21" step="1" />
+            </div>
+            <div class="field">
+              <label>Discharge coeff. Cd</label><input type="number" id="cd" value="0.65" step="0.01" />
+            </div>
+            <div class="field">
+              <label>Viscous cutoff Re₀ <span class="chip">advanced</span></label
+              ><input type="number" id="re0" value="10" step="1" />
+            </div>
+          </div>
+          <div class="row2" style="margin-top: 10px">
+            <div class="field">
+              <label>Shim modulus E</label>
+              <div class="unitpair">
+                <input type="number" id="eMod" value="205000" step="1000" /><select
+                  class="modUnit"
+                  data-for="eMod"
+                  data-unit="MPa"
+                >
+                  <option value="MPa">MPa</option>
+                  <option value="psi">psi</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Poisson ratio ν</label><input type="number" id="nu" value="0.3" step="0.01" />
+            </div>
+          </div>
+          <div class="field" style="margin-top: 10px">
+            <label>Results &amp; range units</label>
+            <select id="resultUnit">
+              <option value="mm">Metric — N, mm/s</option>
+              <option value="in">Imperial — lbf, in/s</option>
             </select>
-            <span id="xAxisMaxWrap" style="display:none;">
-              max <input type="number" id="axisMaxU" style="width:90px;" step="100"> <span class="uvel">mm/s</span>
-            </span>
           </div>
-          <div class="btnrow" style="align-items:center; margin-top:6px;">
-            <input type="text" id="pinName" placeholder="curve label (optional)" style="width:150px;">
-            <button class="small" id="pinCurveBtn">📌 Pin curve</button>
-            <button class="small danger" id="clearPinsBtn">Clear pinned</button>
+          <div class="row3">
+            <div class="field">
+              <label>Max stack force, F.stack (<span class="uforce">N</span>)</label
+              ><input type="number" id="fMax" value="400" step="1" />
+            </div>
+            <div class="field">
+              <label>Max shaft velocity, u.wheel (<span class="uvel">mm/s</span>)</label
+              ><input type="number" id="uMax" value="8000" step="1" />
+            </div>
+            <div class="field">
+              <label># velocity points</label><input type="number" id="nPts" value="26" step="1" />
+            </div>
           </div>
-          <div id="pinList" style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;"></div>
-          <div class="btnrow" style="align-items:center; margin-top:0;">
-            <label class="live-toggle"><input type="checkbox" id="targetOn"> <b>Target curve</b></label>
-            <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Drag the dots to shape what you want.</p></div></details>
-            <button class="small" id="resetTargetBtn">Reset to current</button>
-            <button class="small danger" id="clearTargetBtn">Clear target</button>
-            <span style="flex:1"></span>
-            <span id="targetReadout" class="hint" style="margin:0;"></span>
+          <div class="btnrow">
+            <button class="primary" id="recalcBtn" style="display: none">▶ Recalculate</button>
+            <button id="saveConfigBtn">Save config…</button>
+            <button id="loadConfigTriggerBtn">Load config…</button>
+            <input type="file" id="loadFile" accept=".json" style="display: none" />
+            <button id="exportCSVBtn">Export CSV</button>
           </div>
-          <div class="btnrow" style="align-items:center; margin-top:6px;">
-            <button class="small primary" id="optBtn">🔍 Optimize to target</button>
-            <button class="small danger" id="clearSuggestionsBtn">Clear suggestions</button>
-            <span id="optStatus" class="hint" style="margin:0;"></span>
+          <div class="live-row">
+            <label class="live-toggle"
+              ><input type="checkbox" id="liveMode" checked /> Live update — recalculate automatically as I type</label
+            >
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Everything recalculates automatically as you edit. If you're working on a slow device or making many
+                  edits at once, untick Live update — a Recalculate button appears in its place.
+                </p>
+              </div>
+            </details>
+            <span id="liveStatus" class="live-status"></span>
           </div>
-          <div id="optResults" style="margin:6px 0;"></div>
-          <canvas id="forceCanvas"></canvas>
-          <div class="datatable-wrap">
-            <table id="resultsTable">
-              <thead><tr>
-                <th>Shaft velocity (m/s)</th>
-                <th>Shaft velocity (in/s)</th>
-                <th>Damping force (<span class="uforce">N</span>)</th>
-                <th>Damping coeff. (<span class="uforce">N</span>·s/<span class="ulen">mm</span>)</th>
-                <th>Reynolds #</th>
-              </tr></thead>
-              <tbody></tbody>
-            </table>
+        </div>
+
+        <div class="panel" id="p-spring-calc">
+          <h2>
+            <span class="chev">▾</span>Spring Curve Calculator
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Compares dual springs-in-series against single springs: spring rate, coil-bind travel, sag/peak force,
+                  and a live force-vs-displacement chart with a pop-out view.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div id="tool-spring-calc">
+            <h2 class="page-title">📈 Spring Curve Calculator</h2>
+            <p class="subtitle">
+              Combo A &amp; B = dual springs in series &nbsp;·&nbsp; Combo C &amp; D = single springs &nbsp;·&nbsp;
+              Chrome-silicon (G = 11,500,000 psi)
+            </p>
+
+            <div class="outer">
+              <!-- ==== COMBO A - dual series ==== -->
+              <div>
+                <div class="col-header col-header-a">Combo A — Dual Series</div>
+
+                <div class="card">
+                  <div class="card-title a1">Spring A1</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="a_fl1" value="175" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label
+                      ><input type="number" id="a_nc1" value="10" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label><input type="number" id="a_wd1" value="8" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label
+                      ><input type="number" id="a_sid1" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="a_p1" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_A1</span><span class="rate-val a1" id="a_vk1">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="a_cb1">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val a1" id="a_mt1">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="a_mf1">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title a2">Spring A2</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="a_fl2" value="175" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label
+                      ><input type="number" id="a_nc2" value="8" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label><input type="number" id="a_wd2" value="9" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label
+                      ><input type="number" id="a_sid2" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="a_p2" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_A2</span><span class="rate-val a2" id="a_vk2">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="a_cb2">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val a2" id="a_mt2">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="a_mf2">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title ac">Combo A — Series Result</div>
+                  <div class="series-box series-box-a">
+                    <div class="formula">1/k = 1/k_A1 + 1/k_A2</div>
+                    <div class="kval ac" id="a_ks">—</div>
+                    <div class="klabel">Phase 1 combined rate</div>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat">
+                      <div class="stat-label">Total Free Length</div>
+                      <div class="stat-val" id="a_fl_tot">—</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Total Travel</div>
+                      <div class="stat-val" id="a_t_tot">—</div>
+                    </div>
+                  </div>
+                  <div class="phase-note phase-note-a" id="a_phase">—</div>
+                </div>
+              </div>
+
+              <!-- ==== COMBO B - dual series ==== -->
+              <div>
+                <div class="col-header col-header-b">Combo B — Dual Series</div>
+
+                <div class="card">
+                  <div class="card-title b1">Spring B1</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="b_fl1" value="160" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label
+                      ><input type="number" id="b_nc1" value="12" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label><input type="number" id="b_wd1" value="7" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label
+                      ><input type="number" id="b_sid1" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="b_p1" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_B1</span><span class="rate-val b1" id="b_vk1">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="b_cb1">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val b1" id="b_mt1">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="b_mf1">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title b2">Spring B2</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="b_fl2" value="190" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label
+                      ><input type="number" id="b_nc2" value="9" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label
+                      ><input type="number" id="b_wd2" value="10" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label
+                      ><input type="number" id="b_sid2" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="b_p2" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_B2</span><span class="rate-val b2" id="b_vk2">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="b_cb2">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val b2" id="b_mt2">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="b_mf2">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title bc">Combo B — Series Result</div>
+                  <div class="series-box series-box-b">
+                    <div class="formula">1/k = 1/k_B1 + 1/k_B2</div>
+                    <div class="kval bc" id="b_ks">—</div>
+                    <div class="klabel">Phase 1 combined rate</div>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat">
+                      <div class="stat-label">Total Free Length</div>
+                      <div class="stat-val" id="b_fl_tot">—</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Total Travel</div>
+                      <div class="stat-val" id="b_t_tot">—</div>
+                    </div>
+                  </div>
+                  <div class="phase-note phase-note-b" id="b_phase">—</div>
+                </div>
+              </div>
+
+              <!-- ==== COMBO C - single spring ==== -->
+              <div>
+                <div class="col-header col-header-c">Combo C — Single Spring</div>
+
+                <div class="card">
+                  <div class="card-title cc">Spring C</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="c_fl" value="200" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label><input type="number" id="c_nc" value="9" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label><input type="number" id="c_wd" value="9" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label><input type="number" id="c_sid" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="c_p" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_C</span><span class="rate-val cc" id="c_vk">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="c_cb">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val cc" id="c_mt">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="c_mf">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title cc">Combo C — Single Result</div>
+                  <div class="series-box series-box-c">
+                    <div class="formula">Linear: F = k · x</div>
+                    <div class="kval cc" id="c_ks">—</div>
+                    <div class="klabel">Spring rate (no kink)</div>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat">
+                      <div class="stat-label">Free Length</div>
+                      <div class="stat-val" id="c_fl_out">—</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Max Travel</div>
+                      <div class="stat-val" id="c_t_out">—</div>
+                    </div>
+                  </div>
+                  <div class="phase-note phase-note-c" id="c_phase">—</div>
+                </div>
+              </div>
+
+              <!-- ==== COMBO D - single spring ==== -->
+              <div>
+                <div class="col-header col-header-d">Combo D — Single Spring</div>
+
+                <div class="card">
+                  <div class="card-title dc">Spring D</div>
+                  <div class="section-label">Dimensions</div>
+                  <div class="g3">
+                    <div class="input-group">
+                      <label>Free Length</label
+                      ><input type="number" id="d_fl" value="200" min="10" max="500" step="1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Active Coils</label
+                      ><input type="number" id="d_nc" value="11" min="1" max="60" step="0.5" />
+                      <div class="input-hint">count</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Wire Dia.</label><input type="number" id="d_wd" value="10" min="0.5" max="30" step="0.1" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                  </div>
+                  <div class="g2">
+                    <div class="input-group">
+                      <label>Spring ID</label><input type="number" id="d_sid" value="50" min="5" max="300" step="0.5" />
+                      <div class="input-hint">mm</div>
+                    </div>
+                    <div class="input-group">
+                      <label>Preload (lb)</label><input type="number" id="d_p" value="0" min="0" max="500" step="1" />
+                      <div class="input-hint">initial load</div>
+                    </div>
+                  </div>
+                  <div class="rate-box">
+                    <span class="rate-label">Computed Rate k_D</span><span class="rate-val dc" id="d_vk">—</span>
+                  </div>
+                  <div class="derived-box">
+                    <div class="derived-item">
+                      <div class="derived-label">Coil-bind</div>
+                      <div class="derived-val" id="d_cb">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Max Travel</div>
+                      <div class="derived-val dc" id="d_mt">—</div>
+                    </div>
+                    <div class="derived-item">
+                      <div class="derived-label">Bind Force</div>
+                      <div class="derived-val" id="d_mf">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-title dc">Combo D — Single Result</div>
+                  <div class="series-box series-box-d">
+                    <div class="formula">Linear: F = k · x</div>
+                    <div class="kval dc" id="d_ks">—</div>
+                    <div class="klabel">Spring rate (no kink)</div>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat">
+                      <div class="stat-label">Free Length</div>
+                      <div class="stat-val" id="d_fl_out">—</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Max Travel</div>
+                      <div class="stat-val" id="d_t_out">—</div>
+                    </div>
+                  </div>
+                  <div class="phase-note phase-note-d" id="d_phase">—</div>
+                </div>
+              </div>
+
+              <!-- ==== CHART ==== -->
+              <div class="chart-col">
+                <div class="chart-toolbar">
+                  <button class="btn-popout" id="btn-popout">⛶ Pop out chart</button>
+                </div>
+                <div class="canvas-wrap" id="canvas-wrap">
+                  <canvas id="chart"></canvas>
+                </div>
+
+                <div class="legend">
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #3b82f6"></div>
+                    Combo A
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #a3e635"></div>
+                    Combo B
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #2dd4bf"></div>
+                    Combo C
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="background: #f87171"></div>
+                    Combo D
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="border-top: 2px dashed #e879f9; background: none"></div>
+                    Sag
+                  </div>
+                  <div class="leg-item">
+                    <div class="leg-line" style="border-top: 2px dashed #fbbf24; background: none"></div>
+                    Peak
+                  </div>
+                </div>
+
+                <div class="shared-card">
+                  <div class="shared-title">Graph Controls</div>
+                  <div class="row"><label>X-axis max travel</label><span id="v-xmax">200 mm</span></div>
+                  <input type="range" id="xmax" min="150" max="200" value="200" step="1" />
+
+                  <!-- Sag + Peak -->
+                  <div class="sag-panel" style="margin-top: 10px">
+                    <div class="split-title">Sag &amp; Peak Force</div>
+                    <div class="g2" style="margin-top: 4px">
+                      <div class="input-group">
+                        <label style="font-size: 0.67rem; color: var(--muted)">Sag %</label>
+                        <input type="number" id="sag_pct" value="25" min="1" max="99" step="0.5" />
+                        <div class="input-hint">% of X-axis range</div>
+                      </div>
+                      <div class="input-group">
+                        <label style="font-size: 0.67rem; color: var(--muted)">Peak Force Disp. (mm)</label>
+                        <input type="number" id="peak_mm" value="180" min="0" max="200" step="1" />
+                        <div class="input-hint">horizontal force line</div>
+                      </div>
+                    </div>
+                    <div class="sag-grid" style="margin-top: 8px; grid-template-columns: 1fr 1fr 1fr 1fr">
+                      <div class="sag-out">
+                        <div class="sag-out-label">Sag displacement</div>
+                        <div class="sag-out-val" id="sag_disp_out" style="color: #e879f9">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force A @ sag</div>
+                        <div class="sag-out-val" style="color: #3b82f6" id="sag_fA_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force B @ sag</div>
+                        <div class="sag-out-val bc" id="sag_fB_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force C @ sag</div>
+                        <div class="sag-out-val cc" id="sag_fC_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force D @ sag</div>
+                        <div class="sag-out-val dc" id="sag_fD_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force A @ peak</div>
+                        <div class="sag-out-val" style="color: #3b82f6" id="peak_fA_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force B @ peak</div>
+                        <div class="sag-out-val bc" id="peak_fB_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force C @ peak</div>
+                        <div class="sag-out-val cc" id="peak_fC_out">—</div>
+                      </div>
+                      <div class="sag-out">
+                        <div class="sag-out-label">Force D @ peak</div>
+                        <div class="sag-out-val dc" id="peak_fD_out">—</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Deflection splits -->
+                  <div class="split-panel">
+                    <div class="split-title">Deflection Split at Probe Load</div>
+                    <div class="probe-row">
+                      <label>Force</label>
+                      <input
+                        type="range"
+                        id="probe"
+                        min="0"
+                        max="500"
+                        value="80"
+                        step="1"
+                        style="flex: 1; margin-top: 0"
+                      />
+                      <span class="probe-force" id="probe-val">80 lb</span>
+                    </div>
+
+                    <div class="sub-section">Combo A</div>
+                    <div class="split-row">
+                      <div class="split-label a1">A1</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="a_bar1" style="background: #60a5fa; width: 50%"></div>
+                      </div>
+                      <div class="split-val a1" id="a_def1">—</div>
+                    </div>
+                    <div class="split-row">
+                      <div class="split-label a2">A2</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="a_bar2" style="background: #f472b6; width: 50%"></div>
+                      </div>
+                      <div class="split-val a2" id="a_def2">—</div>
+                    </div>
+                    <div class="split-row" style="margin-bottom: 8px">
+                      <div class="split-label ac">Total A</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="a_barc" style="background: #34d399; width: 100%"></div>
+                      </div>
+                      <div class="split-val ac" id="a_defc">—</div>
+                    </div>
+                    <div class="warn" id="a_warn1">⚠️ A1 at coil-bind</div>
+                    <div class="warn" id="a_warn2">⚠️ A2 at coil-bind</div>
+
+                    <div class="sub-section">Combo B</div>
+                    <div class="split-row">
+                      <div class="split-label b1">B1</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="b_bar1" style="background: #fb923c; width: 50%"></div>
+                      </div>
+                      <div class="split-val b1" id="b_def1">—</div>
+                    </div>
+                    <div class="split-row">
+                      <div class="split-label b2">B2</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="b_bar2" style="background: #a78bfa; width: 50%"></div>
+                      </div>
+                      <div class="split-val b2" id="b_def2">—</div>
+                    </div>
+                    <div class="split-row" style="margin-bottom: 8px">
+                      <div class="split-label bc">Total B</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="b_barc" style="background: #a3e635; width: 100%"></div>
+                      </div>
+                      <div class="split-val bc" id="b_defc">—</div>
+                    </div>
+                    <div class="warn" id="b_warn1">⚠️ B1 at coil-bind</div>
+                    <div class="warn" id="b_warn2">⚠️ B2 at coil-bind</div>
+
+                    <div class="sub-section">Combo C (single)</div>
+                    <div class="split-row" style="margin-bottom: 8px">
+                      <div class="split-label cc">C</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="c_bar" style="background: #2dd4bf; width: 50%"></div>
+                      </div>
+                      <div class="split-val cc" id="c_def">—</div>
+                    </div>
+                    <div class="warn" id="c_warn">⚠️ C at coil-bind</div>
+
+                    <div class="sub-section">Combo D (single)</div>
+                    <div class="split-row" style="margin-bottom: 0">
+                      <div class="split-label dc">D</div>
+                      <div class="split-bar-bg">
+                        <div class="split-bar" id="d_bar" style="background: #f87171; width: 50%"></div>
+                      </div>
+                      <div class="split-val dc" id="d_def">—</div>
+                    </div>
+                    <div class="warn" id="d_warn">⚠️ D at coil-bind</div>
+                  </div>
+
+                  <div class="formula-note" style="margin-top: 10px">
+                    k = (G·d⁴)/(8·D³·n) &nbsp;|&nbsp; G = 11,500,000 psi (chrome-silicon) &nbsp;|&nbsp; D = ID + d
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Popout overlay - must exist in the DOM before the script below runs,
+     since that script grabs these elements and attaches listeners synchronously. -->
+            <div class="popout-overlay" id="popout-overlay">
+              <div class="popout-window">
+                <div class="popout-header">
+                  <span class="popout-title">Spring Curve — Expanded View</span>
+                  <button class="btn-close" id="btn-close-popout">×</button>
+                </div>
+                <div id="popout-canvas-wrap">
+                  <canvas id="popout-canvas"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="p-shim-delta">
+          <h2>
+            <span class="chev">▾</span>Shim Delta Tool
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Select two stock tunes and see exactly which shims to remove, keep, and add to go from one to the
+                  other.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div id="tool-shim-delta">
+            <div class="controls">
+              <div class="field">
+                <label>Tune you have</label>
+                <select id="fromTune"></select>
+              </div>
+              <div class="arrow" aria-hidden="true">→</div>
+              <div class="field">
+                <label>Tune you want</label>
+                <select id="toTune"></select>
+              </div>
+            </div>
+
+            <div id="output"></div>
+          </div>
+        </div>
+
+        <div class="panel" id="p-wheel-force">
+          <h2>
+            <span class="chev">▾</span>Wheel Force Curve
+            <details class="hint-details">
+              <summary class="hint-bubble" aria-label="More info">?</summary>
+              <div class="hint-popover">
+                <p>
+                  Spring force across your travel range, plus how much extra force the current valve tune adds at a
+                  given shaft velocity — synced live from the Shim Stack Tuner workspace above.
+                </p>
+              </div>
+            </details>
+            <span class="panel-actions"
+              ><button class="panel-move" data-dir="up" title="Move up">▲</button
+              ><button class="panel-move" data-dir="down" title="Move down">▼</button></span
+            >
+          </h2>
+          <div id="tool-wheel-force">
+            <div class="card">
+              <h2>Setup</h2>
+              <div class="field-row">
+                <div class="field">
+                  <label>Spring rate</label>
+                  <select id="springRate"></select>
+                </div>
+                <div class="field">
+                  <label>Travel range</label>
+                  <select id="travelMax"></select>
+                </div>
+              </div>
+              <div class="sync-row">
+                <span id="syncStatus" class="sync-status">Checking for a synced valve config…</span>
+                <button id="refreshBtn" class="btn" type="button">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="legend">
+                <div class="leg-item">
+                  <div class="leg-line" style="background: #2f6fed"></div>
+                  Spring only
+                </div>
+                <div class="leg-item" id="legCombined">
+                  <div class="leg-line" style="background: #0f9d58"></div>
+                  Spring + damper
+                </div>
+              </div>
+              <div class="canvas-wrap"><canvas id="wheelForceChart"></canvas></div>
+
+              <div class="velocity-row">
+                <label for="velocity">Shaft velocity</label>
+                <input type="range" id="velocity" min="0" max="8000" step="50" value="0" />
+              </div>
+              <p class="velocity-readout" id="damperReadout">Load a valve config to see damper force.</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="panel" id="p-geom">
-      <h2><span class="chev">▾</span>Damper &amp; valve setup <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Fill these in once per valve, then move on to the tuning tile above. Everything here is remembered per valve setup.</p></div></details><span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
-
-        <div class="btnrow" style="align-items:center; margin-top:0;">
-          <select id="valveSetups" style="width:auto; min-width:150px;">
-            <option value="" selected disabled>saved valve setups…</option>
-          </select>
-          <input type="text" id="valveSetupName" placeholder="setup name" style="width:130px;">
-          <button class="small" id="saveValveSetupBtn">Save setup</button>
-          <button class="small danger" id="deleteValveSetupBtn">Delete</button>
-          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Save this panel's damper/valve dimensions (plus valve type) under a name and reload them any time — stored by your browser on this computer, nothing uploaded. Survives closing the file.</p></div></details>
-        </div>
-        <p class="hint" id="valveSetupHint"></p>
-
-        <div class="btnrow" style="align-items:center; gap:6px; margin-top:14px;">
-          <details class="hint-details"><summary class="hint-bubble" aria-label="How to load a stock tune">?</summary><div class="hint-popover"><p>Pick a <b>Product</b> → <b>Valve</b> → <b>Stock tune</b> to load a real FOX stack straight from the valve-stack drawings (all shims 0.252in ID, listed valve-face first; counts cross-checked against each drawing's stack-height dimension) into the shim table in the tuning tile below. Choosing a valve also sets its valve type and loads its saved (or default, approximate) port geometry — enter your measured piston/port dimensions below and press "Save this valve's geometry" to keep them.</p></div></details>
-          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Product</b></label>
-          <select id="prodSel" style="width:auto; min-width:210px;"></select>
-          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Valve</b></label>
-          <select id="valveSel" style="width:auto;"></select>
-          <label style="margin:0; font-size:12.5px; color:var(--ink);"><b>Stock tune</b></label>
-          <select id="tuneSel" style="width:auto;"></select>
-        </div>
-        <div id="catalogLoadWarn" class="hint" style="display:none; color:var(--warn);"></div>
-        <div class="btnrow" style="align-items:center; gap:6px; margin-top:6px;">
-          <button class="small" id="saveValveGeomBtn">Save this valve's geometry</button>
-          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Choosing a valve above loads its saved (or default, approximate) port geometry into the Damper &amp; valve setup fields below. Enter your own measured D.rod, D.valve, r.port, d.port, w.port etc., then press this button to keep them — stored per product/valve in your browser, reloaded automatically next time you pick that same valve.</p></div></details>
-          <span class="hint" id="geomSaveHint" style="margin:0;"></span>
-        </div>
-        <p class="hint" id="presetNote"></p>
-        <details class="diagram-box" style="margin-top:6px;">
-          <summary>Usable shim catalog for this valve <span class="chip" id="catalogCount"></span></summary>
-          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Each button is one real FOX part (OD × thickness, inches) proven from a drawing, sharing this valve's ID and within its OD bounds — the pool the optimizer will draw from. Clicking adds one to the stack in size order; adjust count or position with the row controls in the tuning tile below. The list grows as more products/tunes are added; nothing outside it can be used.</p></div></details>
-          <p class="hint" id="catalogNote" style="margin:6px 2px;"></p>
-          <div id="catalogChips" style="display:flex; flex-wrap:wrap; gap:4px; margin:6px 2px;"></div>
-        </details>
-
-        <div class="diagram-row" style="margin-top:14px;">
-          <details class="diagram-box" open>
-            <summary>Reference diagram — what to measure</summary>
-            <div class="diagram-content">
-              <svg viewBox="0 0 340 250" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <marker id="ar1" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                    <path d="M0,0 L10,5 L0,10 z" fill="#5b6472"/>
-                  </marker>
-                  <marker id="ar2" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                    <path d="M0,0 L10,5 L0,10 z" fill="#2f6fed"/>
-                  </marker>
-                </defs>
-                <!-- shaft/rod, drawn full-height behind the piston/stack so it reads as passing through them - exits at the bottom -->
-                <rect x="155" y="10" width="30" height="230" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
-                <!-- compression retaining nut -->
-                <rect x="157" y="10" width="26" height="16" rx="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
-                <!-- compression shim stack, above the piston, tapering outward -->
-                <rect x="152" y="28" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="142" y="34" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="133" y="40" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="125" y="46" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="118" y="52" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="112" y="58" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <!-- piston / valve - D.valve is measured directly across it, not a separate bore outline -->
-                <rect x="110" y="64" width="120" height="26" rx="3" fill="#c7d6fb" stroke="#2f6fed" stroke-width="1.5"/>
-                <!-- flow ports through the piston -->
-                <rect x="130" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1"/>
-                <rect x="200" y="70" width="10" height="14" rx="2" fill="#eef2f7" stroke="#1c2430" stroke-width="1"/>
-                <!-- rebound shim stack, below the piston, tapering outward -->
-                <rect x="112" y="92" width="116" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="118" y="98" width="104" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="125" y="104" width="90" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="133" y="110" width="74" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="142" y="116" width="56" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <rect x="152" y="122" width="36" height="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1"/>
-                <!-- rebound retaining nut -->
-                <rect x="157" y="128" width="26" height="16" rx="4" fill="#cfd8e3" stroke="#1c2430" stroke-width="1.5"/>
-                <!-- D.rod dimension -->
-                <line x1="155" y1="200" x2="185" y2="200" stroke="#5b6472" stroke-width="1.5" marker-start="url(#ar1)" marker-end="url(#ar1)"/>
-                <!-- D.valve dimension, marked directly on the piston (not the bore) -->
-                <line x1="110" y1="77" x2="230" y2="77" stroke="#2f6fed" stroke-width="1.5" marker-start="url(#ar2)" marker-end="url(#ar2)"/>
-              </svg>
-              <ul class="diagram-legend">
-                <li><span class="legend-swatch" style="background:#5b6472"></span><b>D.rod</b> — shaft/rod diameter through the seal</li>
-                <li><span class="legend-swatch" style="background:#2f6fed"></span><b>D.valve</b> — outer diameter of the valve/piston</li>
-                <li>Shims above the piston = <b>compression</b>; below = <b>rebound</b>. Simplified, not to scale.</li>
-              </ul>
-            </div>
-          </details>
-
-          <details class="diagram-box" open>
-            <summary>Live diagram — valve port face (updates as you edit)</summary>
-            <div class="diagram-content">
-              <canvas id="portFaceCanvas" class="port-face-canvas"></canvas>
-              <ul class="diagram-legend">
-                <li><span class="legend-swatch" style="background:#c0392b"></span><b>r.port</b> — center to the port's inner edge</li>
-                <li><span class="legend-swatch" style="background:#0f9d58"></span><b>d.port</b> — port's radial depth</li>
-                <li><span class="legend-swatch" style="background:#2f6fed"></span><b>w.port</b> — port's width at the outer edge</li>
-                <li><span class="legend-swatch" style="background:#5b6472"></span><b>shaft</b> — D.rod bore</li>
-                <li id="portFaceCount" style="margin-top:6px;"></li>
-                <li id="portFaceNote" class="legend-note" style="display:none;"></li>
-              </ul>
-            </div>
-          </details>
-        </div>
-
-        <div class="checklist">
-          <div class="field"><label>1. Rod diameter D.rod</label>
-            <div class="unitpair"><input type="number" id="dRod" value="16" step="0.1"><select class="fieldUnit" data-for="dRod" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>2. Valve/body diameter D.valve</label>
-            <div class="unitpair"><input type="number" id="dValve" value="50" step="0.1"><select class="fieldUnit" data-for="dValve" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>3. Valve type</label>
-            <select id="valveType">
-              <option value="base">Base valve / compression adjuster</option>
-              <option value="mainComp" selected>Main / mid-valve — compression</option>
-              <option value="mainRebound">Main / mid-valve — rebound</option>
-            </select>
-          </div>
-          <div class="field"><label>4. Shim ID, D.hole (hole for the shaft/post) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>The <b>shim ID</b> is just the center hole (must clear the shaft). Clamp diameter — the other half of the bending model — has moved to the tuning tile above, next to the shim table it directly affects.</p></div></details></label>
-            <div class="unitpair"><input type="number" id="stackID" value="12" step="0.1"><select class="fieldUnit" data-for="stackID" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-        </div>
-
-        <details class="diagram-box">
-          <summary>📷 Estimate r.port / d.port / w.port from a photo</summary>
-          <details class="hint-details"><summary class="hint-bubble" aria-label="How to use the photo tool">?</summary><div class="hint-popover"><p>Upload a straight-on photo of the valve face. Click <b>3 points anywhere along the valve's outer edge</b> to set the scale from your D.valve value above — any 3 points on the rim will do, no need to find the center or opposite points. Then click all the way around <b>one port's actual boundary</b> — as many points as you like, rounded/kidney/D-shaped ports are fine — and press "Finish this port". Trace a couple more ports for a more reliable average, or just note how many more you can see. Each click snaps to the nearest sharp edge in the photo automatically. Works best on a reasonably straight-on shot; a steep angle will skew the numbers.</p></div></details>
-          <input type="file" id="photoFile" accept="image/*">
-          <label class="live-toggle" style="margin-top:6px;"><input type="checkbox" id="photoSnapToggle" checked> 🧲 Snap clicks to the nearest edge</label>
-          <canvas id="photoCanvas" style="height:360px; cursor:crosshair; display:none;"></canvas>
-          <p class="hint" id="photoStepHint" style="margin-top:6px;">Choose a photo to begin.</p>
-          <div class="btnrow" style="margin-top:6px;">
-            <button class="small" id="photoUndoBtn" type="button" disabled>Undo last point</button>
-            <button class="small" id="photoFinishPortBtn" type="button" disabled>Finish this port ✓</button>
-            <button class="small danger" id="photoResetBtn" type="button" disabled>Start over</button>
-          </div>
-          <p class="hint" id="photoPortsHint"></p>
-          <div class="field" style="max-width:280px; margin-top:6px;">
-            <label>Other ports visible but not traced (assumed identical)</label>
-            <input type="number" id="photoOtherPorts" value="0" min="0" step="1">
-          </div>
-          <div class="btnrow" style="margin-top:6px; align-items:center;">
-            <button class="small primary" id="photoApplyBtn" type="button" disabled>Apply to r.port / d.port / w.port</button>
-            <label class="live-toggle"><input type="checkbox" id="photoApplyNPort" checked> also set N.port</label>
+    <div class="wrap">
+      <div class="units-bar">
+        <span>Bulk unit set:</span>
+        <select id="bulkUnit">
+          <option value="" selected disabled>choose…</option>
+          <option value="mm">All metric — mm</option>
+          <option value="in">All imperial — in</option>
+        </select>
+        <details class="hint-details">
+          <summary class="hint-bubble" aria-label="More info">?</summary>
+          <div class="hint-popover">
+            <p>
+              Every geometry &amp; shim field has its own mm/in dropdown, so you can mix parts from different
+              manufacturers — a metric damper body with imperial shims, for example. This selector is just a bulk
+              shortcut; individual fields always stay overridable.
+            </p>
           </div>
         </details>
-
-        <div class="checklist">
-          <div class="field"><label>5. r.port, port inner radius <details class="hint-details"><summary class="hint-bubble" aria-label="Where these names come from">?</summary><div class="hint-popover"><p>These match the D.rod / D.valve / r.port / d.port / w.port / N.port / d.thrt / N.thrt names used in the original Shim ReStackor manual, so you can copy values straight across if you have them.</p></div></details></label>
-            <div class="unitpair"><input type="number" id="rPort" value="10.5" step="0.1"><select class="fieldUnit" data-for="rPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>6. d.port, port radial length</label>
-            <div class="unitpair"><input type="number" id="dPort" value="9" step="0.1"><select class="fieldUnit" data-for="dPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>7. w.port, port perimeter width</label>
-            <div class="unitpair"><input type="number" id="wPort" value="12" step="0.1"><select class="fieldUnit" data-for="wPort" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>8. N.port (number of ports)</label><input type="number" id="nPort" value="4" step="1"></div>
-          <div class="field"><label>9. d.thrt, throat dia — 0 = none</label>
-            <div class="unitpair"><input type="number" id="dThrt" value="0" step="0.1"><select class="fieldUnit" data-for="dThrt" data-unit="mm"><option value="mm">mm</option><option value="in">in</option></select></div>
-          </div>
-          <div class="field"><label>10. N.thrt (throat count)</label><input type="number" id="nThrt" value="0" step="1"></div>
-        </div>
+        <button class="small" id="resetLayoutBtn" title="Restore default tile positions and expand all tiles">
+          Reset layout
+        </button>
+      </div>
     </div>
 
-    <div class="panel" id="p-advanced">
-      <h2><span class="chev">▾</span>Oil, shim material &amp; calculation settings <span class="chip">advanced</span> <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Collapsed by default — reasonable defaults are already loaded. Expand to dial in your actual oil and shim spec, calculation range, or to save/load a config file.</p></div></details><span class="panel-actions"><button class="panel-move" data-dir="up" title="Move up">▲</button><button class="panel-move" data-dir="down" title="Move down">▼</button></span></h2>
-        <div class="field">
-          <label>Viscosity input mode</label>
-          <select id="viscMode">
-            <option value="direct">Direct — cSt @40°C / @100°C</option>
-            <option value="iso">ISO VG grade</option>
-            <option value="sae">SAE shock-oil weight (approx.)</option>
-          </select>
-        </div>
-        <div class="row2" id="viscDirectFields">
-          <div class="field"><label>cSt @ 40°C</label><input type="number" id="cst40" value="30" step="0.1"></div>
-          <div class="field"><label>cSt @ 100°C</label><input type="number" id="cst100" value="6" step="0.1"></div>
-        </div>
-        <div class="row2" id="viscIsoFields" style="display:none">
-          <div class="field"><label>ISO VG grade <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>cSt@40 = the VG number itself, by definition. cSt@100 is estimated for a typical VI≈100 mineral oil.</p></div></details></label><input type="number" id="isoVG" value="32" step="1"></div>
-        </div>
-        <div class="row2" id="viscSaeFields" style="display:none">
-          <div class="field"><label>SAE shock-oil weight <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Rough average fit — SAE shock-oil weight isn't a strict standard and varies a lot between brands (see About panel).</p></div></details></label><input type="number" id="saeWt" value="5" step="0.5"></div>
-        </div>
-        <p class="hint" id="viscResultHint"></p>
-        <div class="row4">
-          <div class="field"><label>Oil density (kg/m³) <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Oil density is always kg/m³ — it isn't a shim/geometry dimension so it's not affected by the dimension unit selectors.</p></div></details></label><input type="number" id="rho" value="850" step="1"></div>
-          <div class="field"><label>Oil temperature (°C)</label><input type="number" id="oilTemp" value="40" step="1"></div>
-          <div class="field"><label>Discharge coeff. Cd</label><input type="number" id="cd" value="0.65" step="0.01"></div>
-          <div class="field"><label>Viscous cutoff Re₀ <span class="chip">advanced</span></label><input type="number" id="re0" value="10" step="1"></div>
-        </div>
-        <div class="row2" style="margin-top:10px;">
-          <div class="field"><label>Shim modulus E</label>
-            <div class="unitpair"><input type="number" id="eMod" value="205000" step="1000"><select class="modUnit" data-for="eMod" data-unit="MPa"><option value="MPa">MPa</option><option value="psi">psi</option></select></div>
-          </div>
-          <div class="field"><label>Poisson ratio ν</label><input type="number" id="nu" value="0.3" step="0.01"></div>
-        </div>
-        <div class="field" style="margin-top:10px;">
-          <label>Results &amp; range units</label>
-          <select id="resultUnit">
-            <option value="mm">Metric — N, mm/s</option>
-            <option value="in">Imperial — lbf, in/s</option>
-          </select>
-        </div>
-        <div class="row3">
-          <div class="field"><label>Max stack force, F.stack (<span class="uforce">N</span>)</label><input type="number" id="fMax" value="400" step="1"></div>
-          <div class="field"><label>Max shaft velocity, u.wheel (<span class="uvel">mm/s</span>)</label><input type="number" id="uMax" value="8000" step="1"></div>
-          <div class="field"><label># velocity points</label><input type="number" id="nPts" value="26" step="1"></div>
-        </div>
-        <div class="btnrow">
-          <button class="primary" id="recalcBtn" style="display:none">▶ Recalculate</button>
-          <button id="saveConfigBtn">Save config…</button>
-          <button id="loadConfigTriggerBtn">Load config…</button>
-          <input type="file" id="loadFile" accept=".json" style="display:none">
-          <button id="exportCSVBtn">Export CSV</button>
-        </div>
-        <div class="live-row">
-          <label class="live-toggle"><input type="checkbox" id="liveMode" checked> Live update — recalculate automatically as I type</label>
-          <details class="hint-details"><summary class="hint-bubble" aria-label="More info">?</summary><div class="hint-popover"><p>Everything recalculates automatically as you edit. If you're working on a slow device or making many edits at once, untick Live update — a Recalculate button appears in its place.</p></div></details>
-          <span id="liveStatus" class="live-status"></span>
-        </div>
+    <footer>
+      Shim Stack Tuner — independent open-source style tool, offline &amp; self-contained. Not affiliated with any
+      commercial suspension-valving software.
+    </footer>
+
+    <script src="theme.js"></script>
+    <script type="module" src="app.js"></script>
+    <script type="module">
+      // ---- Shim Delta Tool (merged from the former shim-delta.html) - own module scope,
+      // no shared state with app.js or any other merged tool. ----
+      const TUNES = {
+        RL20: {
+          type: 'Rebound Linear',
+          dwg: '805-05-720-KIT',
+          thick: '.067-.075" / 1.71-1.91mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.510 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
+        },
+        RL30: {
+          type: 'Rebound Linear',
+          dwg: '805-05-721-KIT',
+          thick: '.070-.078" / 1.79-1.98mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.510 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
+        },
+        RL40: {
+          type: 'Rebound Linear',
+          dwg: '805-05-722-KIT',
+          thick: '.070-.078" / 1.79-1.98mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.530 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
+        },
+        RL50: {
+          type: 'Rebound Linear',
+          dwg: '805-05-723-KIT',
+          thick: '.070-.078" / 1.79-1.98mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.550 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
+        },
+        RL60: {
+          type: 'Rebound Linear',
+          dwg: '805-05-724-KIT',
+          thick: '.080-.088" / 2.04-2.24mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.550 OD × .377 ID × .008 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
+        },
+        CS10: {
+          type: 'Compression Split',
+          dwg: '805-05-710-KIT',
+          thick: '.060-.066" / 1.52-1.66mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .0045 TH',
+            '.800 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+        },
+        CS30: {
+          type: 'Compression Split',
+          dwg: '805-05-712-KIT',
+          thick: '.058-.064" / 1.47-1.61mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.510 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+        },
+        CS50: {
+          type: 'Compression Split',
+          dwg: '805-05-714-KIT',
+          thick: '.062-.068" / 1.59-1.73mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.530 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+        },
+        CS70: {
+          type: 'Compression Split',
+          dwg: '805-05-716-KIT',
+          thick: '.069-.075" / 1.76-1.91mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.510 OD × .377 ID × .008 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+        },
+        CS90: {
+          type: 'Compression Split',
+          dwg: '805-05-718-KIT',
+          thick: '.069-.075" / 1.76-1.91mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.490 OD × .377 ID × .008 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+        },
+        B20: {
+          type: 'Base Valve',
+          dwg: '805-05-238-KIT',
+          thick: 'Inst: .021-.024" | Free: .025-.027"',
+          shims: [
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.400 OD × .252 ID × .0045 TH',
+            '.500 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .0045 TH',
+            '.700 OD × .252 ID × .0045 TH',
+            'Ring Shim .900 OD × .810 ID × .008 TH',
+            '.800 OD × .252 ID × .0045 TH',
+            '.900 OD × .252 ID × .006 TH',
+          ],
+        },
+        B40: {
+          type: 'Base Valve',
+          dwg: '805-05-239-KIT',
+          thick: 'Inst: .033-.036" | Free: .036-.040"',
+          shims: [
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.400 OD × .252 ID × .0045 TH',
+            '.500 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .0045 TH',
+            '.700 OD × .252 ID × .0045 TH',
+            'Ring Shim .900 OD × .810 ID × .008 TH',
+            '.800 OD × .252 ID × .0045 TH',
+            '.900 OD × .252 ID × .006 TH',
+            '.900 OD × .252 ID × .006 TH',
+          ],
+        },
+        B60: {
+          type: 'Base Valve',
+          dwg: '805-05-240-KIT',
+          thick: 'Inst: .027-.030" | Free: .031-.033"',
+          shims: [
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.450 OD × .252 ID × .010 TH',
+            '.500 OD × .252 ID × .006 TH',
+            '.600 × .252 × .006 TH',
+            '.700 OD × .252 ID × .006 TH',
+            '.800 OD × .252 ID × .006 TH',
+            'Ring Shim .900 OD × .810 ID × .008 TH',
+            '.800 OD × .252 ID × .0045 TH',
+            '.900 OD × .252 ID × .006 TH',
+            '.900 OD × .252 ID × .006 TH',
+          ],
+        },
+        B80: {
+          type: 'Base Valve',
+          dwg: '805-05-241-KIT',
+          thick: 'Inst: .021-.023" | Free: .023-.025"',
+          shims: [
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.450 OD × .252 ID × .020 TH',
+            '.500 OD × .252 ID × .008 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.700 OD × .252 ID × .008 TH',
+            '.800 OD × .252 ID × .008 TH',
+            'Ring Shim .900 OD × .810 ID × .008 TH',
+            '.800 OD × .252 ID × .006 TH',
+            '.900 OD × .252 ID × .008 TH',
+          ],
+        },
+        B100: {
+          type: 'Base Valve',
+          dwg: '805-05-242-KIT',
+          thick: 'Inst: .023-.025" | Free: .025-.027"',
+          shims: [
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.450 OD × .252 ID × .020 TH',
+            '.500 OD × .252 ID × .008 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.700 OD × .252 ID × .008 TH',
+            'Ring Shim .900 OD × .810 ID × .010 TH',
+            '.800 OD × .252 ID × .008 TH',
+            '.900 OD × .252 ID × .008 TH',
+          ],
+        },
+      };
+
+      function countShims(arr) {
+        const map = {};
+        arr.forEach((s) => {
+          map[s] = (map[s] || 0) + 1;
+        });
+        return map;
+      }
+
+      function calcDelta(fromKey, toKey) {
+        const from = countShims(TUNES[fromKey].shims);
+        const to = countShims(TUNES[toKey].shims);
+        const all = new Set([...Object.keys(from), ...Object.keys(to)]);
+        const remove = [],
+          keep = [],
+          add = [];
+        all.forEach((shim) => {
+          const f = from[shim] || 0;
+          const t = to[shim] || 0;
+          if (f > t) remove.push({ shim, qty: f - t, fromQty: f, toQty: t });
+          else if (f === t && f > 0) keep.push({ shim, qty: f });
+          else if (t > f) add.push({ shim, qty: t - f, fromQty: f, toQty: t });
+        });
+        return { remove, keep, add };
+      }
+
+      function shimRows(items, qtyClass, sign) {
+        if (!items.length) return `<div class="empty">None</div>`;
+        return items
+          .map(
+            (it) => `
+    <div class="shim-row">
+      <span class="qty ${qtyClass}">${sign}${it.qty}×</span>
+      <span class="shim-spec">${it.shim}</span>
+    </div>`,
+          )
+          .join('');
+      }
+
+      function render() {
+        const fromKey = document.getElementById('fromTune').value;
+        const toKey = document.getElementById('toTune').value;
+        const fromT = TUNES[fromKey];
+        const toT = TUNES[toKey];
+
+        if (fromKey === toKey) {
+          document.getElementById('output').innerHTML = `
+      <p style="color:var(--muted);font-size:14px;">Select two different tunes to see the delta.</p>`;
+          return;
+        }
+
+        const { remove, keep, add } = calcDelta(fromKey, toKey);
+
+        document.getElementById('output').innerHTML = `
+    <div class="meta">
+      <strong>${fromKey}</strong> (${fromT.dwg}) → <strong>${toKey}</strong> (${toT.dwg}) &nbsp;·&nbsp;
+      Stack: ${fromT.thick} → ${toT.thick}
     </div>
-  </div>
-</div>
 
-<footer>Shim Stack Tuner — independent open-source style tool, offline &amp; self-contained. Not affiliated with any commercial suspension-valving software.</footer>
+    <div class="summary-grid">
+      <div class="stat remove">
+        <div class="stat-label">− Remove</div>
+        <div class="stat-val">${remove.reduce((s, i) => s + i.qty, 0)}</div>
+      </div>
+      <div class="stat keep">
+        <div class="stat-label">✓ Keep</div>
+        <div class="stat-val">${keep.reduce((s, i) => s + i.qty, 0)}</div>
+      </div>
+      <div class="stat add">
+        <div class="stat-label">+ Add</div>
+        <div class="stat-val">${add.reduce((s, i) => s + i.qty, 0)}</div>
+      </div>
+    </div>
 
-<script src="theme.js"></script>
-<script type="module" src="app.js"></script>
-</body>
+    <div class="section">
+      <div class="section-head head-remove">− Remove from ${fromKey}</div>
+      ${shimRows(remove, 'qty-remove', '−')}
+    </div>
+
+    <div class="section">
+      <div class="section-head head-keep">✓ Keep (unchanged)</div>
+      ${shimRows(keep, 'qty-keep', '')}
+    </div>
+
+    <div class="section">
+      <div class="section-head head-add">+ Add for ${toKey}</div>
+      ${shimRows(add, 'qty-add', '+')}
+    </div>
+  `;
+      }
+
+      const tuneKeys = Object.keys(TUNES);
+      const fromSel = document.getElementById('fromTune');
+      const toSel = document.getElementById('toTune');
+
+      tuneKeys.forEach((k) => {
+        const o1 = document.createElement('option');
+        o1.value = k;
+        o1.textContent = `${k} — ${TUNES[k].type}`;
+        const o2 = document.createElement('option');
+        o2.value = k;
+        o2.textContent = `${k} — ${TUNES[k].type}`;
+        fromSel.appendChild(o1);
+        toSel.appendChild(o2);
+      });
+
+      fromSel.value = 'RL50';
+      toSel.value = 'RL40';
+
+      fromSel.addEventListener('change', render);
+      toSel.addEventListener('change', render);
+      render();
+    </script>
+    <script type="module">
+      // ---- Spring Curve Calculator (merged from the former spring-calculator.html) - own
+      // module scope, no shared state with app.js or any other merged tool. ----
+
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+
+      // activeCtx/activeCanvas set after popout logic initialises below
+      let activeCtx = ctx;
+      let activeCanvas = canvas;
+
+      const G_PSI = 11_500_000;
+      const mmToIn = (mm) => mm / 25.4;
+      const inToMm = (i) => i * 25.4;
+
+      function computeRate(wd_mm, sid_mm, nc) {
+        const d = mmToIn(wd_mm),
+          D = mmToIn(sid_mm + wd_mm);
+        if (D <= 0 || nc <= 0 || d <= 0) return 0;
+        return (G_PSI * Math.pow(d, 4)) / (8 * Math.pow(D, 3) * nc);
+      }
+
+      // Read dual-combo inputs
+      function readCombo(p) {
+        const fl1 = Math.max(10, parseFloat(document.getElementById(p + 'fl1').value) || 175);
+        const nc1 = Math.max(1, parseFloat(document.getElementById(p + 'nc1').value) || 10);
+        const wd1 = Math.max(0.5, parseFloat(document.getElementById(p + 'wd1').value) || 8);
+        const sid1 = Math.max(5, parseFloat(document.getElementById(p + 'sid1').value) || 50);
+        const pp1 = Math.max(0, parseFloat(document.getElementById(p + 'p1').value) || 0);
+        const fl2 = Math.max(10, parseFloat(document.getElementById(p + 'fl2').value) || 175);
+        const nc2 = Math.max(1, parseFloat(document.getElementById(p + 'nc2').value) || 10);
+        const wd2 = Math.max(0.5, parseFloat(document.getElementById(p + 'wd2').value) || 8);
+        const sid2 = Math.max(5, parseFloat(document.getElementById(p + 'sid2').value) || 50);
+        const pp2 = Math.max(0, parseFloat(document.getElementById(p + 'p2').value) || 0);
+        const k1 = computeRate(wd1, sid1, nc1),
+          k2 = computeRate(wd2, sid2, nc2);
+        const cb1_mm = wd1 * (nc1 + 2),
+          cb2_mm = wd2 * (nc2 + 2);
+        const travel1_mm = Math.max(0, fl1 - cb1_mm),
+          travel2_mm = Math.max(0, fl2 - cb2_mm);
+        return {
+          k1,
+          k2,
+          p1: pp1,
+          p2: pp2,
+          fl1,
+          fl2,
+          cb1_mm,
+          cb2_mm,
+          travel1_mm,
+          travel2_mm,
+          t1_in: mmToIn(travel1_mm),
+          t2_in: mmToIn(travel2_mm),
+        };
+      }
+
+      // Read single-spring combo (C or D)
+      function readSingle(p) {
+        const fl = Math.max(10, parseFloat(document.getElementById(p + 'fl').value) || 200);
+        const nc = Math.max(1, parseFloat(document.getElementById(p + 'nc').value) || 9);
+        const wd = Math.max(0.5, parseFloat(document.getElementById(p + 'wd').value) || 9);
+        const sid = Math.max(5, parseFloat(document.getElementById(p + 'sid').value) || 50);
+        const pr = Math.max(0, parseFloat(document.getElementById(p + 'p').value) || 0);
+        const k = computeRate(wd, sid, nc);
+        const cb_mm = wd * (nc + 2);
+        const travel_mm = Math.max(0, fl - cb_mm);
+        return { k, p: pr, fl, nc, wd, sid, cb_mm, travel_mm, t_in: mmToIn(travel_mm) };
+      }
+
+      function calcPhases(v, ks) {
+        const Fbind1 = v.k1 * v.t1_in,
+          Fbind2 = v.k2 * v.t2_in;
+        const s1first = Fbind1 <= Fbind2;
+        const F_kink = s1first ? Fbind1 : Fbind2,
+          k_surv = s1first ? v.k2 : v.k1;
+        const t_surv_in = s1first ? v.t2_in : v.t1_in;
+        const x_kink_in = F_kink / ks;
+        const surv_at_kink = F_kink / k_surv,
+          surv_remain = t_surv_in - surv_at_kink;
+        const x_solid_in = x_kink_in + surv_remain;
+        return { Fbind1, Fbind2, s1first, F_kink, k_surv, x_kink_in, surv_remain, x_solid_in };
+      }
+
+      function seriesForce(x_mm, ks, ph) {
+        const x_in = mmToIn(x_mm);
+        if (x_in <= 0) return 0;
+        if (x_in <= ph.x_kink_in) return ks * x_in;
+        if (x_in <= ph.x_solid_in) return ph.F_kink + ph.k_surv * (x_in - ph.x_kink_in);
+        return null;
+      }
+
+      // Force for single spring at given displacement
+      function singleForce(x_mm, vc) {
+        const x_in = mmToIn(x_mm);
+        if (x_in <= 0) return 0;
+        if (x_in <= vc.t_in) return vc.p + vc.k * x_in;
+        return null;
+      }
+
+      function updateComboUI(pfx, v, ks, ph) {
+        const f = (n, d, u) => (isFinite(n) ? n.toFixed(d) + ' ' + u : '—');
+        document.getElementById(pfx + 'vk1').textContent = f(v.k1, 1, 'lb/in');
+        document.getElementById(pfx + 'vk2').textContent = f(v.k2, 1, 'lb/in');
+        document.getElementById(pfx + 'cb1').textContent = f(v.cb1_mm, 1, 'mm');
+        document.getElementById(pfx + 'mt1').textContent = f(v.travel1_mm, 1, 'mm');
+        document.getElementById(pfx + 'mf1').textContent = f(ph.Fbind1, 0, 'lb');
+        document.getElementById(pfx + 'cb2').textContent = f(v.cb2_mm, 1, 'mm');
+        document.getElementById(pfx + 'mt2').textContent = f(v.travel2_mm, 1, 'mm');
+        document.getElementById(pfx + 'mf2').textContent = f(ph.Fbind2, 0, 'lb');
+        document.getElementById(pfx + 'ks').textContent = f(ks, 2, 'lb/in');
+        document.getElementById(pfx + 'fl_tot').textContent = f(v.fl1 + v.fl2, 0, 'mm');
+        document.getElementById(pfx + 't_tot').textContent = f(v.travel1_mm + v.travel2_mm, 0, 'mm');
+        const xk_mm = inToMm(ph.x_kink_in),
+          bf = ph.s1first ? 1 : 2;
+        const tag = pfx === 'a_' ? 'A' : 'B';
+        document.getElementById(pfx + 'phase').innerHTML =
+          `<b>Spring ${tag}${bf}</b> binds first at <b>${ph.F_kink.toFixed(0)} lb / ${xk_mm.toFixed(1)} mm</b><br>` +
+          `Rate: <b>${ks.toFixed(1)} → ${ph.k_surv.toFixed(1)} lb/in</b>`;
+      }
+
+      function updateSingleUI(pfx, vc) {
+        const f = (n, d, u) => (isFinite(n) ? n.toFixed(d) + ' ' + u : '—');
+        document.getElementById(pfx + 'vk').textContent = f(vc.k, 1, 'lb/in');
+        document.getElementById(pfx + 'cb').textContent = f(vc.cb_mm, 1, 'mm');
+        document.getElementById(pfx + 'mt').textContent = f(vc.travel_mm, 1, 'mm');
+        document.getElementById(pfx + 'mf').textContent = f(vc.k * vc.t_in, 0, 'lb');
+        document.getElementById(pfx + 'ks').textContent = f(vc.k, 1, 'lb/in');
+        document.getElementById(pfx + 'fl_out').textContent = f(vc.fl, 0, 'mm');
+        document.getElementById(pfx + 't_out').textContent = f(vc.travel_mm, 1, 'mm');
+        const tag = pfx === 'c_' ? 'C' : 'D';
+        document.getElementById(pfx + 'phase').textContent =
+          `Linear spring — coil-binds at ${(vc.k * vc.t_in).toFixed(0)} lb / ${vc.travel_mm.toFixed(1)} mm`;
+      }
+
+      function updateSplits(pfx, v, ph, F) {
+        const s1b = F >= ph.Fbind1,
+          s2b = F >= ph.Fbind2;
+        const d1 = s1b ? v.travel1_mm : inToMm(F / v.k1);
+        const d2 = s2b ? v.travel2_mm : inToMm(F / v.k2);
+        const dc = d1 + d2,
+          mb = Math.max(dc, 1);
+        document.getElementById(pfx + 'bar1').style.width = Math.min(100, (d1 / mb) * 100) + '%';
+        document.getElementById(pfx + 'bar2').style.width = Math.min(100, (d2 / mb) * 100) + '%';
+        document.getElementById(pfx + 'barc').style.width = '100%';
+        document.getElementById(pfx + 'def1').textContent = d1.toFixed(1) + ' mm' + (s1b ? ' ✓' : '');
+        document.getElementById(pfx + 'def2').textContent = d2.toFixed(1) + ' mm' + (s2b ? ' ✓' : '');
+        document.getElementById(pfx + 'defc').textContent = dc.toFixed(1) + ' mm';
+        document.getElementById(pfx + 'warn1').style.display = s1b ? 'block' : 'none';
+        document.getElementById(pfx + 'warn2').style.display = s2b ? 'block' : 'none';
+      }
+
+      function updateSingleSplit(pfx, vc, F) {
+        const cbound = F >= vc.k * vc.t_in;
+        const d_mm = cbound ? vc.travel_mm : inToMm(F / vc.k);
+        const maxBar = Math.max(d_mm, 1);
+        document.getElementById(pfx + 'bar').style.width = Math.min(100, (d_mm / maxBar) * 100) + '%';
+        document.getElementById(pfx + 'def').textContent = d_mm.toFixed(1) + ' mm' + (cbound ? ' ✓' : '');
+        document.getElementById(pfx + 'warn').style.display = cbound ? 'block' : 'none';
+      }
+
+      function draw() {
+        const vA = readCombo('a_'),
+          vB = readCombo('b_'),
+          vC = readSingle('c_'),
+          vD = readSingle('d_');
+        if (vA.k1 <= 0 || vA.k2 <= 0 || vB.k1 <= 0 || vB.k2 <= 0 || vC.k <= 0 || vD.k <= 0) return;
+
+        const ksA = 1 / (1 / vA.k1 + 1 / vA.k2),
+          ksB = 1 / (1 / vB.k1 + 1 / vB.k2);
+        const phA = calcPhases(vA, ksA),
+          phB = calcPhases(vB, ksB);
+
+        updateComboUI('a_', vA, ksA, phA);
+        updateComboUI('b_', vB, ksB, phB);
+        updateSingleUI('c_', vC);
+        updateSingleUI('d_', vD);
+
+        const probe = +document.getElementById('probe').value;
+        const xmax_mm = +document.getElementById('xmax').value;
+        const sag_pct = Math.min(99, Math.max(1, parseFloat(document.getElementById('sag_pct').value) || 25));
+        const peak_mm = Math.min(xmax_mm, Math.max(0, parseFloat(document.getElementById('peak_mm').value) || 180));
+
+        document.getElementById('probe-val').textContent = probe + ' lb';
+        document.getElementById('v-xmax').textContent = xmax_mm + ' mm';
+
+        updateSplits('a_', vA, phA, probe);
+        updateSplits('b_', vB, phB, probe);
+        updateSingleSplit('c_', vC, probe);
+        updateSingleSplit('d_', vD, probe);
+
+        const sag_mm = (sag_pct / 100) * xmax_mm;
+        const sag_fA = seriesForce(sag_mm, ksA, phA) ?? 0;
+        const sag_fB = seriesForce(sag_mm, ksB, phB) ?? 0;
+        const sag_fC = singleForce(sag_mm, vC) ?? 0;
+        const sag_fD = singleForce(sag_mm, vD) ?? 0;
+        const peak_fA = seriesForce(peak_mm, ksA, phA) ?? 0;
+        const peak_fB = seriesForce(peak_mm, ksB, phB) ?? 0;
+        const peak_fC = singleForce(peak_mm, vC) ?? 0;
+        const peak_fD = singleForce(peak_mm, vD) ?? 0;
+
+        document.getElementById('sag_disp_out').textContent = sag_mm.toFixed(1) + ' mm (' + sag_pct + '%)';
+        document.getElementById('sag_fA_out').textContent = sag_fA.toFixed(0) + ' lb';
+        document.getElementById('sag_fB_out').textContent = sag_fB.toFixed(0) + ' lb';
+        document.getElementById('sag_fC_out').textContent = sag_fC.toFixed(0) + ' lb';
+        document.getElementById('sag_fD_out').textContent = sag_fD.toFixed(0) + ' lb';
+        document.getElementById('peak_fA_out').textContent = peak_fA.toFixed(0) + ' lb';
+        document.getElementById('peak_fB_out').textContent = peak_fB.toFixed(0) + ' lb';
+        document.getElementById('peak_fC_out').textContent = peak_fC.toFixed(0) + ' lb';
+        document.getElementById('peak_fD_out').textContent = peak_fD.toFixed(0) + ' lb';
+
+        // Build points
+        const N = 1000;
+        let ymax = 10;
+        const pAc = [],
+          pBc = [],
+          pCc = [],
+          pDc = [];
+
+        for (let i = 0; i <= N; i++) {
+          const x_mm = (i / N) * xmax_mm;
+          const fAc = seriesForce(x_mm, ksA, phA);
+          const fBc = seriesForce(x_mm, ksB, phB);
+          const fCc = singleForce(x_mm, vC);
+          const fDc = singleForce(x_mm, vD);
+          pAc.push({ x: x_mm, f: fAc });
+          pBc.push({ x: x_mm, f: fBc });
+          pCc.push({ x: x_mm, f: fCc });
+          pDc.push({ x: x_mm, f: fDc });
+          for (const f of [fAc, fBc, fCc, fDc]) if (f != null) ymax = Math.max(ymax, f);
+        }
+        ymax = Math.max(ymax, probe, sag_fA, sag_fB, sag_fC, sag_fD, peak_fA, peak_fB, peak_fC, peak_fD);
+        ymax = Math.ceil((ymax * 1.15) / 10) * 10 || 100;
+
+        // Draw - use whichever canvas is active (inline or popout)
+        const C = activeCanvas;
+        const xc = activeCtx;
+        const DPR2 = window.devicePixelRatio || 2;
+        const W = C.width / DPR2;
+        const H = C.height / DPR2;
+        const pad = { l: 72, r: 28, t: 28, b: 52 };
+        const pw = W - pad.l - pad.r,
+          ph2 = H - pad.t - pad.b;
+        const mx = (x) => pad.l + (x / xmax_mm) * pw;
+        const my = (f) => pad.t + ph2 - (f / ymax) * ph2;
+
+        xc.clearRect(0, 0, W, H);
+        xc.fillStyle = '#1e2130';
+        xc.beginPath();
+        xc.roundRect(0, 0, W, H, 10);
+        xc.fill();
+
+        // Grid
+        xc.strokeStyle = '#252a3f';
+        xc.lineWidth = 1;
+        for (let i = 0; i <= 10; i++) {
+          const gx = mx((i * xmax_mm) / 10);
+          xc.beginPath();
+          xc.moveTo(gx, pad.t);
+          xc.lineTo(gx, pad.t + ph2);
+          xc.stroke();
+        }
+        for (let i = 0; i <= 6; i++) {
+          const gy = my((i * ymax) / 6);
+          xc.beginPath();
+          xc.moveTo(pad.l, gy);
+          xc.lineTo(pad.l + pw, gy);
+          xc.stroke();
+        }
+
+        // Axes
+        xc.strokeStyle = '#4b5563';
+        xc.lineWidth = 1.5;
+        xc.beginPath();
+        xc.moveTo(pad.l, pad.t);
+        xc.lineTo(pad.l, pad.t + ph2);
+        xc.stroke();
+        xc.beginPath();
+        xc.moveTo(pad.l, pad.t + ph2);
+        xc.lineTo(pad.l + pw, pad.t + ph2);
+        xc.stroke();
+
+        // Tick labels
+        xc.fillStyle = '#6b7280';
+        xc.font = '12px system-ui';
+        xc.textAlign = 'center';
+        for (let i = 0; i <= 10; i++)
+          xc.fillText(((i * xmax_mm) / 10).toFixed(0), mx((i * xmax_mm) / 10), pad.t + ph2 + 17);
+        xc.textAlign = 'right';
+        for (let i = 0; i <= 6; i++) xc.fillText(Math.round((i * ymax) / 6), pad.l - 7, my((i * ymax) / 6) + 4);
+        xc.fillStyle = '#94a3b8';
+        xc.font = '13px system-ui';
+        xc.textAlign = 'center';
+        xc.fillText('Displacement (mm)', pad.l + pw / 2, H - 8);
+        xc.save();
+        xc.translate(14, pad.t + ph2 / 2);
+        xc.rotate(-Math.PI / 2);
+        xc.fillText('Force (lb)', 0, 0);
+        xc.restore();
+
+        // Sag line
+        if (sag_mm > 0 && sag_mm <= xmax_mm) {
+          xc.save();
+          xc.strokeStyle = '#e879f9';
+          xc.lineWidth = 2;
+          xc.setLineDash([6, 4]);
+          xc.globalAlpha = 0.85;
+          xc.beginPath();
+          xc.moveTo(mx(sag_mm), pad.t);
+          xc.lineTo(mx(sag_mm), pad.t + ph2);
+          xc.stroke();
+          xc.setLineDash([]);
+          xc.globalAlpha = 1;
+          xc.fillStyle = '#e879f9';
+          xc.font = 'bold 11px system-ui';
+          xc.textAlign = 'center';
+          xc.fillText('sag ' + sag_pct + '%', mx(sag_mm), pad.t + 18);
+          xc.fillStyle = '#d8b4fe';
+          xc.font = '10px system-ui';
+          xc.fillText(sag_mm.toFixed(1) + ' mm', mx(sag_mm), pad.t + 30);
+          const sagCombos = [
+            [sag_fA, '#3b82f6', 'A'],
+            [sag_fB, '#a3e635', 'B'],
+            [sag_fC, '#2dd4bf', 'C'],
+            [sag_fD, '#f87171', 'D'],
+          ];
+          const usedY = [];
+          for (const [f, col, tag] of sagCombos) {
+            if (f <= 0 || f > ymax) continue;
+            xc.fillStyle = col;
+            xc.beginPath();
+            xc.arc(mx(sag_mm), my(f), 5, 0, Math.PI * 2);
+            xc.fill();
+            let labelY = my(f) + 4;
+            while (usedY.some((y) => Math.abs(y - labelY) < 12)) labelY -= 12;
+            usedY.push(labelY);
+            xc.fillStyle = col;
+            xc.font = 'bold 10px system-ui';
+            xc.textAlign = 'left';
+            xc.fillText(tag + ': ' + f.toFixed(0) + ' lb', mx(sag_mm) + 8, labelY);
+          }
+          xc.restore();
+        }
+
+        // Peak force line
+        const peakF = Math.max(peak_fA, peak_fB, peak_fC, peak_fD);
+        if (peak_mm > 0 && peakF > 0 && peakF <= ymax) {
+          xc.save();
+          xc.strokeStyle = '#fbbf24';
+          xc.lineWidth = 1.5;
+          xc.setLineDash([7, 4]);
+          xc.globalAlpha = 0.8;
+          xc.beginPath();
+          xc.moveTo(pad.l, my(peakF));
+          xc.lineTo(pad.l + pw, my(peakF));
+          xc.stroke();
+          xc.setLineDash([]);
+          xc.globalAlpha = 1;
+          xc.fillStyle = '#fbbf24';
+          xc.font = 'bold 10px system-ui';
+          xc.textAlign = 'right';
+          xc.fillText('peak @ ' + peak_mm + ' mm', pad.l + pw - 4, my(peakF) - 5);
+          const peakCombos = [
+            [peak_fA, '#3b82f6', 'A'],
+            [peak_fB, '#a3e635', 'B'],
+            [peak_fC, '#2dd4bf', 'C'],
+            [peak_fD, '#f87171', 'D'],
+          ];
+          const usedY = [];
+          for (const [f, col, tag] of peakCombos) {
+            if (f <= 0 || f > ymax) continue;
+            xc.fillStyle = col;
+            xc.beginPath();
+            xc.arc(mx(peak_mm), my(f), 5, 0, Math.PI * 2);
+            xc.fill();
+            let labelY = my(f) + 4;
+            while (usedY.some((y) => Math.abs(y - labelY) < 12)) labelY -= 12;
+            usedY.push(labelY);
+            xc.fillStyle = col;
+            xc.font = 'bold 10px system-ui';
+            xc.textAlign = 'left';
+            xc.fillText(tag + ': ' + f.toFixed(0) + ' lb', mx(peak_mm) + 8, labelY);
+          }
+          xc.restore();
+        }
+
+        // Probe line
+        if (probe > 0 && probe <= ymax) {
+          xc.save();
+          xc.strokeStyle = '#475569';
+          xc.lineWidth = 1;
+          xc.setLineDash([4, 4]);
+          xc.globalAlpha = 0.5;
+          xc.beginPath();
+          xc.moveTo(pad.l, my(probe));
+          xc.lineTo(pad.l + pw, my(probe));
+          xc.stroke();
+          xc.setLineDash([]);
+          xc.globalAlpha = 1;
+          xc.fillStyle = '#64748b';
+          xc.font = '10px system-ui';
+          xc.textAlign = 'right';
+          xc.fillText('probe ' + probe + ' lb', pad.l + pw - 4, my(probe) - 4);
+          for (const [pts, col] of [
+            [pAc, '#3b82f6'],
+            [pBc, '#a3e635'],
+            [pCc, '#2dd4bf'],
+            [pDc, '#f87171'],
+          ]) {
+            const hit = pts.find((p) => p.f != null && p.f >= probe);
+            if (hit) {
+              xc.fillStyle = col;
+              xc.beginPath();
+              xc.arc(mx(hit.x), my(hit.f), 4, 0, Math.PI * 2);
+              xc.fill();
+            }
+          }
+          xc.restore();
+        }
+
+        // Kink dots for A and B
+        function kinkDot(ph, color) {
+          const xk = inToMm(ph.x_kink_in),
+            fk = ph.F_kink;
+          if (xk > xmax_mm || fk > ymax) return;
+          xc.save();
+          xc.fillStyle = '#1e2130';
+          xc.strokeStyle = color;
+          xc.lineWidth = 2;
+          xc.beginPath();
+          xc.arc(mx(xk), my(fk), 5, 0, Math.PI * 2);
+          xc.fill();
+          xc.stroke();
+          xc.restore();
+        }
+        kinkDot(phA, '#3b82f6');
+        kinkDot(phB, '#a3e635');
+
+        // Draw curves
+        function drawCurve(pts, color, lw) {
+          xc.strokeStyle = color;
+          xc.lineWidth = lw;
+          xc.setLineDash([]);
+          xc.beginPath();
+          let s = false;
+          for (const p of pts) {
+            if (p.f == null) {
+              s = false;
+              continue;
+            }
+            if (!s) {
+              xc.moveTo(mx(p.x), my(p.f));
+              s = true;
+            } else xc.lineTo(mx(p.x), my(p.f));
+          }
+          xc.stroke();
+        }
+        drawCurve(pAc, '#3b82f6', 2.5);
+        drawCurve(pBc, '#a3e635', 2.5);
+        drawCurve(pCc, '#2dd4bf', 2.5);
+        drawCurve(pDc, '#f87171', 2.5);
+
+        // Annotate end of curves
+        function annotate(pts, color, text) {
+          const last = pts.filter((p) => p.f != null).pop();
+          if (!last) return;
+          xc.fillStyle = color;
+          xc.font = 'bold 10px system-ui';
+          xc.textAlign = 'left';
+          xc.fillText(text, Math.min(mx(last.x) + 4, pad.l + pw - 120), my(last.f) - 5);
+        }
+        annotate(pAc, '#3b82f6', 'A→' + phA.k_surv.toFixed(1) + ' lb/in');
+        annotate(pBc, '#a3e635', 'B→' + phB.k_surv.toFixed(1) + ' lb/in');
+        annotate(pCc, '#2dd4bf', 'C: ' + vC.k.toFixed(1) + ' lb/in');
+        annotate(pDc, '#f87171', 'D: ' + vD.k.toFixed(1) + ' lb/in');
+      }
+
+      const allIds = [
+        'a_fl1',
+        'a_nc1',
+        'a_wd1',
+        'a_sid1',
+        'a_p1',
+        'a_fl2',
+        'a_nc2',
+        'a_wd2',
+        'a_sid2',
+        'a_p2',
+        'b_fl1',
+        'b_nc1',
+        'b_wd1',
+        'b_sid1',
+        'b_p1',
+        'b_fl2',
+        'b_nc2',
+        'b_wd2',
+        'b_sid2',
+        'b_p2',
+        'c_fl',
+        'c_nc',
+        'c_wd',
+        'c_sid',
+        'c_p',
+        'd_fl',
+        'd_nc',
+        'd_wd',
+        'd_sid',
+        'd_p',
+        'probe',
+        'xmax',
+        'sag_pct',
+        'peak_mm',
+      ];
+      allIds.forEach((id) => document.getElementById(id).addEventListener('input', draw));
+
+      // ---- Canvas resize helper ----
+      // Sizes a canvas to w x h CSS pixels at device pixel ratio for crispness,
+      // then restores the DPR scale transform so draw() works in logical coords.
+      function resizeCanvas(c, w, h) {
+        const dpr = window.devicePixelRatio || 2;
+        c.style.width = w + 'px';
+        c.style.height = h + 'px';
+        c.width = Math.round(w * dpr);
+        c.height = Math.round(h * dpr);
+        c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      // ---- Inline canvas: size to container, redraw on resize ----
+      const canvasWrap = document.getElementById('canvas-wrap');
+      function sizeInlineCanvas() {
+        const w = canvasWrap.clientWidth || 680;
+        const h = canvasWrap.clientHeight || Math.round(w * 0.76);
+        resizeCanvas(canvas, w, h);
+      }
+      sizeInlineCanvas();
+
+      new ResizeObserver(() => {
+        if (activeCanvas === canvas) {
+          sizeInlineCanvas();
+          draw();
+        }
+      }).observe(canvasWrap);
+
+      // ---- Popout ----
+      const overlay = document.getElementById('popout-overlay');
+      const popoutWrap = document.getElementById('popout-canvas-wrap');
+      const popoutCanvas = document.getElementById('popout-canvas');
+
+      function sizePopoutCanvas() {
+        const w = popoutWrap.clientWidth || Math.round(window.innerWidth * 0.86);
+        const h = popoutWrap.clientHeight || Math.round(window.innerHeight * 0.76);
+        resizeCanvas(popoutCanvas, w, h);
+      }
+
+      document.getElementById('btn-popout').addEventListener('click', () => {
+        overlay.classList.add('active');
+        // Let the overlay render so clientWidth is non-zero, then size + draw
+        requestAnimationFrame(() => {
+          sizePopoutCanvas();
+          activeCanvas = popoutCanvas;
+          activeCtx = popoutCanvas.getContext('2d');
+          draw();
+        });
+      });
+
+      function closePopout() {
+        overlay.classList.remove('active');
+        activeCanvas = canvas;
+        activeCtx = ctx;
+        draw();
+      }
+      document.getElementById('btn-close-popout').addEventListener('click', closePopout);
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closePopout();
+      });
+
+      new ResizeObserver(() => {
+        if (activeCanvas !== popoutCanvas) return;
+        sizePopoutCanvas();
+        activeCtx = popoutCanvas.getContext('2d');
+        draw();
+      }).observe(popoutWrap);
+
+      // ---- Initial draw ----
+      draw();
+    </script>
+    <script type="module">
+      // ---- Wheel Force Curve (merged from the former spring-damper-curve.html) - own module
+      // scope, no shared state with app.js or any other merged tool. Still reads the
+      // sst_live_config_v1 snapshot app.js writes on every calc, same as before the merge -
+      // but now also listens for the same-page 'sst-live-config-changed' custom event app.js
+      // dispatches right after writing that snapshot, since the native 'storage' event only
+      // fires in *other* tabs and never fires for changes made on this same page. ----
+      import { buildStack, solveForceAtVelocity } from './js/physics.js';
+      import { lsGet } from './js/storage.js';
+      import { setupCanvas } from './js/canvas-utils.js';
+
+      const LIVE_CONFIG_KEY = 'sst_live_config_v1';
+      const N_PER_LBF = 4.4482216153;
+      const MM_PER_IN = 25.4;
+
+      let liveConfig = null;
+      let stack = null;
+      let buildErr = null;
+
+      const chartCanvas = document.getElementById('wheelForceChart');
+      const pad = { l: 100, r: 20, t: 20, b: 44 };
+
+      function populateRange(select, min, max, step, unit, defaultVal) {
+        for (let v = min; v <= max; v += step) {
+          const opt = document.createElement('option');
+          opt.value = String(v);
+          opt.textContent = `${v} ${unit}`;
+          if (v === defaultVal) opt.selected = true;
+          select.appendChild(opt);
+        }
+      }
+      populateRange(document.getElementById('springRate'), 25, 75, 5, 'lb/in', 50);
+      populateRange(document.getElementById('travelMax'), 130, 200, 5, 'mm', 200);
+
+      function springForceN(rateLbIn, travelMm) {
+        return rateLbIn * (travelMm / MM_PER_IN) * N_PER_LBF;
+      }
+      function fmtForceDual(n) {
+        return `${n.toFixed(0)} N (${(n / N_PER_LBF).toFixed(0)} lbf)`;
+      }
+      function fmtVelDual(mmps) {
+        return `${mmps.toFixed(0)} mm/s (${(mmps / MM_PER_IN).toFixed(1)} in/s)`;
+      }
+      function valveTypeLabel(vt) {
+        if (vt === 'base') return 'base valve';
+        if (vt === 'mainRebound') return 'main/mid rebound';
+        return 'main/mid compression';
+      }
+
+      function updateSyncStatusUI() {
+        const el = document.getElementById('syncStatus');
+        const slider = document.getElementById('velocity');
+        const legCombined = document.getElementById('legCombined');
+        if (!liveConfig) {
+          el.textContent = 'No valve config found yet — set up shims and geometry above to compute one.';
+          el.className = 'sync-status';
+          slider.disabled = true;
+          legCombined.classList.add('dimmed');
+        } else if (!stack) {
+          el.textContent = 'Synced config failed to build: ' + buildErr;
+          el.className = 'sync-status err';
+          slider.disabled = true;
+          legCombined.classList.add('dimmed');
+        } else {
+          const n = liveConfig.rows.length;
+          el.textContent = `✓ Synced from the workspace above — ${n} shim row${n === 1 ? '' : 's'}, ${valveTypeLabel(liveConfig.valveType)}, clamp ⌀${liveConfig.geom.clampDia.toFixed(1)}mm`;
+          el.className = 'sync-status ok';
+          slider.disabled = false;
+          legCombined.classList.remove('dimmed');
+        }
+      }
+
+      function rebuildFromConfig() {
+        liveConfig = lsGet(LIVE_CONFIG_KEY);
+        // A snapshot written before the fluid model generalized to arbitrary calibration
+        // points (t1/v1/t2/v2) still has the old cSt40/cSt100 shape - normalize in place so
+        // solveForceAtVelocity() doesn't silently get undefined and produce a NaN curve.
+        if (liveConfig && liveConfig.fluid && liveConfig.fluid.t1 == null) {
+          liveConfig.fluid.t1 = 40;
+          liveConfig.fluid.v1 = liveConfig.fluid.cSt40;
+          liveConfig.fluid.t2 = 100;
+          liveConfig.fluid.v2 = liveConfig.fluid.cSt100;
+        }
+        stack = null;
+        buildErr = null;
+        if (liveConfig) {
+          try {
+            stack = buildStack(liveConfig.rows, liveConfig.geom, liveConfig.mech, {
+              Fmax: liveConfig.fMax,
+              nSteps: 150,
+              nSeg: 350,
+            });
+          } catch (e) {
+            buildErr = e.message;
+          }
+        }
+        updateSyncStatusUI();
+        recompute();
+      }
+
+      function damperForceN(velocityMMs) {
+        if (!stack) return 0;
+        return solveForceAtVelocity(
+          velocityMMs,
+          stack,
+          liveConfig.geom,
+          liveConfig.fluid,
+          liveConfig.valveType,
+          liveConfig.fMax,
+        ).F;
+      }
+
+      function drawChart(travelMax, springMax, fDamper, hasStack) {
+        const { ctx, w, h } = setupCanvas(chartCanvas);
+        const combinedMax = springMax + (hasStack ? fDamper : 0);
+        const yMax = Math.max(combinedMax, springMax, 1) * 1.15;
+        const pw = w - pad.l - pad.r,
+          phh = h - pad.t - pad.b;
+        const mx = (x) => pad.l + (x / travelMax) * pw;
+        const my = (f) => pad.t + phh - (f / yMax) * phh;
+
+        const isDark = document.documentElement.dataset.theme === 'dark';
+        const gridColor = isDark ? '#2d3148' : '#e5e7eb';
+        const axisColor = isDark ? '#64748b' : '#9aa3af';
+        const textColor = isDark ? '#94a3b8' : '#5b6472';
+
+        ctx.clearRect(0, 0, w, h);
+        ctx.font = '11px system-ui';
+
+        const NX = 8,
+          NY = 6;
+        for (let i = 0; i <= NX; i++) {
+          const x = (travelMax * i) / NX;
+          const px = mx(x);
+          ctx.strokeStyle = gridColor;
+          ctx.beginPath();
+          ctx.moveTo(px, pad.t);
+          ctx.lineTo(px, pad.t + phh);
+          ctx.stroke();
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.fillText(Math.round(x) + ' mm', px, pad.t + phh + 16);
+        }
+        for (let i = 0; i <= NY; i++) {
+          const f = (yMax * i) / NY;
+          const py = my(f);
+          ctx.strokeStyle = gridColor;
+          ctx.beginPath();
+          ctx.moveTo(pad.l, py);
+          ctx.lineTo(pad.l + pw, py);
+          ctx.stroke();
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'right';
+          ctx.fillText(fmtForceDual(f), pad.l - 8, py + 4);
+        }
+
+        ctx.strokeStyle = axisColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, pad.t);
+        ctx.lineTo(pad.l, pad.t + phh);
+        ctx.lineTo(pad.l + pw, pad.t + phh);
+        ctx.stroke();
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.fillText('Wheel travel (mm)', pad.l + pw / 2, h - 6);
+        ctx.save();
+        ctx.translate(16, pad.t + phh / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('Force', 0, 0);
+        ctx.restore();
+
+        ctx.strokeStyle = '#2f6fed';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(mx(0), my(0));
+        ctx.lineTo(mx(travelMax), my(springMax));
+        ctx.stroke();
+
+        if (hasStack) {
+          ctx.strokeStyle = '#0f9d58';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(mx(0), my(fDamper));
+          ctx.lineTo(mx(travelMax), my(springMax + fDamper));
+          ctx.stroke();
+        }
+      }
+
+      function recompute() {
+        const rate = parseFloat(document.getElementById('springRate').value);
+        const travelMax = parseFloat(document.getElementById('travelMax').value);
+        const velocity = parseFloat(document.getElementById('velocity').value);
+        const springMax = springForceN(rate, travelMax);
+        const hasStack = !!stack;
+        const fDamper = hasStack ? damperForceN(velocity) : 0;
+
+        const readout = document.getElementById('damperReadout');
+        if (hasStack) {
+          readout.textContent = `Shaft velocity: ${fmtVelDual(velocity)} → damper force: ${fmtForceDual(fDamper)}`;
+          readout.classList.remove('disabled');
+        } else {
+          readout.textContent = 'Load a valve config to see damper force.';
+          readout.classList.add('disabled');
+        }
+
+        drawChart(travelMax, springMax, fDamper, hasStack);
+      }
+
+      document.getElementById('springRate').addEventListener('input', recompute);
+      document.getElementById('travelMax').addEventListener('input', recompute);
+      document.getElementById('velocity').addEventListener('input', recompute);
+      document.getElementById('refreshBtn').addEventListener('click', rebuildFromConfig);
+      window.addEventListener('storage', (e) => {
+        if (e.key === LIVE_CONFIG_KEY) rebuildFromConfig();
+      });
+      document.addEventListener('sst-live-config-changed', rebuildFromConfig);
+      new ResizeObserver(() => recompute()).observe(chartCanvas.parentElement);
+      // Watch the theme attribute directly (rather than the toggle button's click event) so the
+      // redraw always uses the post-flip colors regardless of script/listener registration order.
+      new MutationObserver(() => recompute()).observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      });
+
+      rebuildFromConfig();
+    </script>
+  </body>
 </html>

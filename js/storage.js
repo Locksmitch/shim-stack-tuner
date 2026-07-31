@@ -7,7 +7,7 @@ export function lsGet(key) {
   try {
     const v = localStorage.getItem(key);
     return v === null ? null : JSON.parse(v);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -15,7 +15,7 @@ export function lsSet(key, val) {
   try {
     localStorage.setItem(key, JSON.stringify(val));
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }

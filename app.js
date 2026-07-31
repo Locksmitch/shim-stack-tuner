@@ -1,9 +1,15 @@
 import { convLen, convForce, convVel, convMod, fmtLen, fmtForce, fmtVel } from './js/units.js';
-import { interpArr, stackGapAt, stackSupportedAt, buildStack, solveForceAtVelocity } from './js/physics.js';
+import { interpArr, buildStack, solveForceAtVelocity, waltherViscAt } from './js/physics.js';
 import { lsGet, lsSet } from './js/storage.js';
 import { IN, canonThk, PRODUCTS, usableShims, loadCatalog } from './js/catalog-data.js';
-import { setupCanvas, drawAxes, defaultTickFmt, themeColor, isDarkTheme } from './js/canvas-utils.js';
+import { OILS, loadOils } from './js/oil-data.js';
+import { viscAtRef, cstToSus, viscosityIndex } from './js/oil-viscosity-calc.js';
+import { buildBandsAtForce, computeStackYMaxMM, drawStackCanvas } from './js/stack-visual.js';
+import { drawForceCurve as drawForceCurveVisual } from './js/force-curve-visual.js';
+import { drawOilChart as drawOilChartVisual, OIL_MIN_TEMP, OIL_MAX_TEMP } from './js/oil-chart-visual.js';
+import { setupCanvas } from './js/canvas-utils.js';
 import { circleFrom3Points, computePortGeometryFromOutline, findStrongestEdgeNear } from './js/photo-measure.js';
+import { broadcastLiveVisuals } from './js/live-sync.js';
 
 let resultUnit = 'mm'; // display unit for force/velocity/outputs
 
@@ -106,66 +112,104 @@ function switchResultUnit(newU) {
 }
 
 /* =========================================================
-   VISCOSITY: ISO VG / SAE approx / Walther temperature correction
+   OIL VISCOSITY COMPARISON PANEL
+   Two oil cards (each a name + two arbitrary calibration points, same math as the
+   former standalone Oil Viscosity Comparison page) plotted on one chart. Exactly one
+   card is checked "active" at a time (see onOilActiveChange) - that's the fluid
+   readFluid() hands to the shim-stack damping solver.
    ========================================================= */
-const ISO_VG_TABLE = [
-  [2, 1.3],
-  [3, 1.6],
-  [5, 2.0],
-  [7, 2.4],
-  [10, 2.9],
-  [15, 3.6],
-  [22, 4.4],
-  [32, 5.4],
-  [46, 6.8],
-  [68, 8.7],
-  [100, 11.4],
-  [150, 14.8],
-  [220, 19.4],
-  [320, 24.7],
-  [460, 31.4],
-  [680, 41.0],
-  [1000, 52.0],
-];
-function isoVGtoCst100(vg) {
-  const xs = ISO_VG_TABLE.map((p) => Math.log(p[0])),
-    ys = ISO_VG_TABLE.map((p) => Math.log(p[1]));
-  const lx = Math.log(vg);
-  if (lx <= xs[0]) return Math.exp(ys[0]);
-  if (lx >= xs[xs.length - 1]) return Math.exp(ys[ys.length - 1]);
-  for (let i = 0; i < xs.length - 1; i++) {
-    if (lx >= xs[i] && lx <= xs[i + 1]) {
-      const f = (lx - xs[i]) / (xs[i + 1] - xs[i]);
-      return Math.exp(ys[i] + f * (ys[i + 1] - ys[i]));
-    }
+
+// D.clamp uses this identical "auto-fills, sticks once you type into it directly"
+// pattern (see clampDiaUserSet) - reused here for Oil temperature (°C), which resets
+// to 21°C whenever the active oil changes, unless the user has directly edited it.
+let oilTempUserSet = false;
+let settingOilTempAuto = false;
+
+function readOil(suffix) {
+  return {
+    t1: parseFloat(document.getElementById('temp1_m' + suffix).value),
+    v1: parseFloat(document.getElementById('visc1_m' + suffix).value),
+    t2: parseFloat(document.getElementById('temp2_m' + suffix).value),
+    v2: parseFloat(document.getElementById('visc2_m' + suffix).value),
+  };
+}
+function viscAt(oil, tempC) {
+  return waltherViscAt(oil.t1, oil.v1, oil.t2, oil.v2, tempC);
+}
+// '' for Oil 1, '_2' for Oil 2 - whichever card's "Use for shim-stack calc" box is
+// checked. Exactly one always is (see onOilActiveChange).
+function activeOilSuffix() {
+  return document.getElementById('oilActive2').checked ? '_2' : '';
+}
+
+function updateOilProbe(suffix) {
+  const oil = readOil(suffix);
+  const tempx = parseFloat(document.getElementById('tempx_m' + suffix).value);
+  const v = viscAt(oil, tempx);
+  document.getElementById('viscx_m' + suffix).textContent = v.toFixed(2);
+  document.getElementById('viscx_i' + suffix).textContent = cstToSus(v).toFixed(2);
+  const v40 = viscAtRef(40, oil.t1, oil.v1, oil.t2, oil.v2);
+  const v100 = viscAtRef(100, oil.t1, oil.v1, oil.t2, oil.v2);
+  const { vi, procedure } = viscosityIndex(v40, v100);
+  const idx = suffix === '_2' ? '2' : '1';
+  document.getElementById('vi_' + idx).textContent = isFinite(vi) ? vi : '—';
+  document.getElementById('procedure_' + idx).textContent = procedure;
+}
+
+function recalcOilCompare() {
+  document.getElementById('leg1name').textContent = document.getElementById('oil1_name').value || 'Oil 1';
+  document.getElementById('leg2name').textContent = document.getElementById('oil2_name').value || 'Oil 2';
+  updateOilProbe('');
+  updateOilProbe('_2');
+  drawOilChart();
+}
+
+// Checking one card's box unchecks the other - exactly one is always active, so the
+// physics calc always has a defined fluid (can't uncheck down to zero-selected).
+function onOilActiveChange(e) {
+  const el = e.target;
+  const other = document.getElementById(el.id === 'oilActive1' ? 'oilActive2' : 'oilActive1');
+  if (el.checked) {
+    other.checked = false;
+  } else {
+    el.checked = true;
+    return;
+  }
+  if (!oilTempUserSet) {
+    settingOilTempAuto = true;
+    document.getElementById('oilTemp').value = 21;
+    settingOilTempAuto = false;
   }
 }
-function saeToCst(sae) {
-  return { cSt40: Math.max(15 + 3.14 * (sae - 2.5), 1), cSt100: Math.max(3 + 0.629 * (sae - 2.5), 1) };
+
+let oilPlotState = null; // cached scales from the last draw, used by hover/click
+// Reads both oil cards + their probe-temp fields and delegates to the shared,
+// state-driven js/oil-chart-visual.js.
+function drawOilChart() {
+  const probe1 = parseFloat(document.getElementById('tempx_m').value);
+  const probe2 = parseFloat(document.getElementById('tempx_m_2').value);
+  const oil1 = readOil(''),
+    oil2 = readOil('_2');
+  oilPlotState = drawOilChartVisual(document.getElementById('oilChart'), oil1, oil2, probe1, probe2);
+  broadcastLiveVisuals({ oil: { oil1, oil2, probe1, probe2 } });
 }
-function onViscModeChange() {
-  const mode = document.getElementById('viscMode').value;
-  document.getElementById('viscDirectFields').style.display = mode === 'direct' ? '' : 'none';
-  document.getElementById('viscIsoFields').style.display = mode === 'iso' ? '' : 'none';
-  document.getElementById('viscSaeFields').style.display = mode === 'sae' ? '' : 'none';
-  let hint = '';
-  if (mode === 'iso') {
-    const vg = parseFloat(document.getElementById('isoVG').value) || 32;
-    const c100 = isoVGtoCst100(vg);
-    document.getElementById('cst40').value = vg.toFixed(1);
-    document.getElementById('cst100').value = c100.toFixed(2);
-    hint = `≈ ${vg.toFixed(1)} cSt @40°C / ${c100.toFixed(2)} cSt @100°C (typical VI≈100 mineral oil)`;
-  } else if (mode === 'sae') {
-    const sae = parseFloat(document.getElementById('saeWt').value) || 5;
-    const r = saeToCst(sae);
-    document.getElementById('cst40').value = r.cSt40.toFixed(1);
-    document.getElementById('cst100').value = r.cSt100.toFixed(2);
-    hint = `≈ ${r.cSt40.toFixed(1)} cSt @40°C / ${r.cSt100.toFixed(2)} cSt @100°C (rough average — real oils vary a lot at a given "weight")`;
-  }
-  document.getElementById('viscResultHint').textContent = hint;
+
+function updateOilHoverReadout(tempC) {
+  const oil1 = readOil(''),
+    oil2 = readOil('_2');
+  const v1 = viscAt(oil1, tempC),
+    v2 = viscAt(oil2, tempC);
+  const name1 = document.getElementById('oil1_name').value || 'Oil 1';
+  const name2 = document.getElementById('oil2_name').value || 'Oil 2';
+  document.getElementById('hoverReadout').textContent =
+    `${tempC.toFixed(1)}°C — ${name1}: ${v1.toFixed(2)} cSt (${cstToSus(v1).toFixed(1)} SUS)  ·  ${name2}: ${v2.toFixed(2)} cSt (${cstToSus(v2).toFixed(1)} SUS)`;
 }
-function onDirectCstChange() {
-  document.getElementById('viscResultHint').textContent = '';
+function setOilProbeTemp(tempC) {
+  tempC = Math.max(OIL_MIN_TEMP, Math.min(OIL_MAX_TEMP, tempC));
+  document.getElementById('tempx_m').value = tempC.toFixed(1);
+  document.getElementById('tempx_m_2').value = tempC.toFixed(1);
+  updateOilHoverReadout(tempC);
+  recalcOilCompare();
 }
 
 /* =========================================================
@@ -175,6 +219,12 @@ let currentStack = null;
 let currentGeom = null;
 let currentRows = null;
 let currentResults = []; // {u, F, Re} always stored in BASE units (mm/s, N)
+// D.clamp auto-detection (see detectClampShimDiam()/runCalc()): once the user types directly
+// into #clampDia, their value sticks and auto-detection stops touching it until a fresh
+// example/config/setup is loaded. settingClampDiaAuto guards the field's own 'input' listener
+// so the auto-set itself doesn't get mistaken for a manual edit.
+let clampDiaUserSet = false;
+let settingClampDiaAuto = false;
 // The live stack preview's locked Y-axis scale (mm, canonical) - recomputed once per calc in
 // runCalc() from the worst-case (max configured force) state, then reused for every slider
 // position by drawStackAtSlider(). See computeStackYMaxMM()/drawStackCanvas() for why this
@@ -184,16 +234,6 @@ let stackYMaxLockedMM = 1;
 // (e.g. the Wheel Force Curve tool) can live-sync a compression valve config from this tab
 // without an explicit export/import step. Same shape as gatherConfig() below.
 const LIVE_CONFIG_KEY = 'sst_live_config_v1';
-const SHIM_PALETTE = [
-  { fill: '#c7d6fb', stroke: '#2f6fed' },
-  { fill: '#c8ecd9', stroke: '#0f9d58' },
-  { fill: '#e6d3f5', stroke: '#8e44ad' },
-  { fill: '#ffe3b3', stroke: '#e08e0b' },
-  { fill: '#bdeef0', stroke: '#16a3b0' },
-  { fill: '#f6c9d0', stroke: '#d1495b' },
-  { fill: '#dbe6ff', stroke: '#8fa8e0' },
-];
-const CLAMP_COLOR = { fill: '#f4d9a0', stroke: '#b8860b' };
 
 // Brief visual cue so a row you just added, duplicated, or reordered is easy to spot -
 // see the .row-moved rule in styles.css for the actual background fade.
@@ -754,6 +794,7 @@ function clearPresetSelection() {
 
 function loadExample() {
   clearPresetSelection();
+  clampDiaUserSet = false;
   document.getElementById('shimBody').innerHTML = '';
   setFieldValueAndUnit('stackID', 12, 'mm');
   setFieldValueAndUnit('clampDia', 12, 'mm');
@@ -780,6 +821,25 @@ function loadExample() {
   });
   showWarn(null);
   scheduleLiveCalc();
+}
+
+// Fresh sessions (no saved sst_live_config_v1 yet) default to a real catalog tune - RockShox
+// Vivid Coil Rebound R01 - instead of the hand-built demo stack, so a first-time user sees
+// realistic geometry and force numbers rather than loadExample()'s placeholder sizes. Uses
+// the same product/valve/tune selection path as picking it from the dropdowns by hand.
+function loadDefaultTune() {
+  if (!PRODUCTS['rsVividCoil2025']) {
+    loadExample(); // catalog didn't load - fall back to the hand-built demo stack
+    return;
+  }
+  curProduct = 'rsVividCoil2025';
+  curValveKey = 'rebound';
+  populateProductSel();
+  populateValveSel();
+  applyValveContext();
+  const tuneSel = document.getElementById('tuneSel');
+  tuneSel.value = 'r01';
+  onTuneChange();
 }
 
 /* ---- product/valve/tune selection ---- */
@@ -1006,6 +1066,7 @@ function geomKeyFor() {
   return curProduct + '/' + curValveKey;
 }
 function loadValveGeom(v) {
+  clampDiaUserSet = false;
   const saved = (lsGet(GEOM_KEY) || {})[geomKeyFor()];
   const g = saved || v.geom;
   const du = prodDispUnit();
@@ -1065,6 +1126,7 @@ function currentTuneLabel() {
 // the model needs continuous material from the clamp ID out to the loaded radius).
 function loadCrossoverExample() {
   clearPresetSelection();
+  clampDiaUserSet = false;
   document.getElementById('shimBody').innerHTML = '';
   setFieldValueAndUnit('stackID', 12, 'mm');
   setFieldValueAndUnit('clampDia', 12, 'mm');
@@ -1113,6 +1175,19 @@ function readRows() {
   return rows;
 }
 
+// A separate clamp washer and/or nut is normally modeled as ordinary rows at the clamp end
+// of the table (per the D.clamp hint's own advice) — several shims sharing one OD, stacked
+// last. When that pattern shows up, D.clamp should just match it automatically instead of
+// needing to be kept in sync by hand. Returns the shared OD in mm, or null if the last row
+// isn't part of a same-OD run of at least 2.
+function detectClampShimDiam(rows) {
+  if (rows.length < 2) return null;
+  const od = rows[rows.length - 1].diam;
+  let n = 0;
+  for (let i = rows.length - 1; i >= 0 && Math.abs(rows[i].diam - od) < 1e-6; i--) n++;
+  return n >= 2 ? od : null;
+}
+
 function readGeom() {
   return {
     dRod: getFieldMM('dRod'),
@@ -1130,12 +1205,18 @@ function readGeom() {
 function readMech() {
   return { E: getModMPa(), nu: parseFloat(document.getElementById('nu').value) };
 }
+// Pulls calibration points straight from whichever oil card is checked "active" (see
+// activeOilSuffix()/onOilActiveChange) - the shim-stack calc always uses exactly the
+// same fluid the comparison chart is plotting for that card.
 function readFluid() {
+  const oil = readOil(activeOilSuffix());
   return {
     rho: parseFloat(document.getElementById('rho').value),
     Cd: parseFloat(document.getElementById('cd').value),
-    cSt40: parseFloat(document.getElementById('cst40').value) || 30,
-    cSt100: parseFloat(document.getElementById('cst100').value) || 6,
+    t1: oil.t1,
+    v1: oil.v1,
+    t2: oil.t2,
+    v2: oil.v2,
     tempC: parseFloat(document.getElementById('oilTemp').value),
     Re0: parseFloat(document.getElementById('re0').value) || 10,
   };
@@ -1166,6 +1247,17 @@ function runCalc(opts) {
   const live = !!(opts && opts.live);
   if (!live) showWarn(null);
   const rows = readRows();
+  if (!clampDiaUserSet) {
+    const autoOD = detectClampShimDiam(rows);
+    if (autoOD != null && Math.abs(getFieldMM('clampDia') - autoOD) > 1e-6) {
+      const u = document.querySelector('.fieldUnit[data-for="clampDia"]').dataset.unit || 'mm';
+      settingClampDiaAuto = true;
+      setFieldValueAndUnit('clampDia', fmtLen(convLen(autoOD, 'mm', u), u), u);
+      settingClampDiaAuto = false;
+    }
+    const note = document.getElementById('clampDiaAutoNote');
+    if (note) note.textContent = autoOD != null ? '(auto-matched to the shims at the clamp end)' : '';
+  }
   if (rows.length < 2) {
     if (live) {
       liveStatus('err', 'waiting for at least 2 shim rows…');
@@ -1198,10 +1290,15 @@ function runCalc(opts) {
   currentStack = stack;
   currentGeom = geom;
   currentRows = rows;
+  broadcastLiveVisuals({ shims: { rows, unit: resultUnit } });
   // Lock the stack preview's Y-axis to this calc's worst case now, once - see
   // stackYMaxLockedMM's declaration and drawStackCanvas() for why.
-  stackYMaxLockedMM = computeStackYMaxMM(Fmax);
+  stackYMaxLockedMM = computeStackYMaxMM(Fmax, stack, geom, rows);
   lsSet(LIVE_CONFIG_KEY, { geom, mech, fluid, valveType, fMax: Fmax, uMax, nPts: String(nPts), rows });
+  // The native 'storage' event only fires in *other* tabs/windows, never for changes made on
+  // this same page - dispatch a matching custom event so same-page listeners (the merged Wheel
+  // Force Curve panel, pop-out windows in the future) can react to a fresh calc too.
+  document.dispatchEvent(new CustomEvent('sst-live-config-changed'));
 
   const results = [];
   for (let i = 0; i < nPts; i++) {
@@ -1293,297 +1390,34 @@ function onLiveModeChange() {
   }
 }
 
-// Builds smooth, curved shim bands directly from the shim table rows.
-//
-// Layout: each row rests in table order at the cumulative thickness of the rows below it,
-// plus the cumulative Float gaps below it. Structural cavities — where a wider shim
-// overhangs a narrower one beneath it — appear automatically because each row is drawn in
-// its own slot across its own reach.
-//
-// Motion: the solver gives one deflection curve y(r) for the engaged stack. At each
-// radius, the gap beneath a row is its explicit Float PLUS the thickness of any narrower
-// rows below that don't reach that radius (see stackGapAt). The row is only pushed where
-// the supported stack beneath has crossed that gap: push(r) = y(r) − gap(r) where
-// supported. The row's offset is the RUNNING MAX of push from the clamp outward — so a
-// wide clamp plate over a small pivot shim visibly stays put while the shims below bend
-// up around the pivot's edge, gets contacted, and only then starts to move: correct
-// order, no overlap, no tearing at cavity edges. This mirrors the solver's own
-// engagement rule, so what you see matches what's computed.
-// Builds the shim-band geometry (one polygon per row) at a given force and display unit -
-// shared by drawStackAtSlider() (the current slider force) and computeStackYMaxMM() (the
-// calc's worst-case Fmax state, used to lock the preview's Y-axis scale - see runCalc()).
-function buildBandsAtForce(Fbase, unit) {
-  const profile = currentStack.profileAt(Fbase); // {rs, ys} in mm
-  const aMM = (currentGeom.clampDia && currentGeom.clampDia > 0 ? currentGeom.clampDia : currentGeom.stackID) / 2;
-  const shaftMM = (currentGeom.stackID || 0) / 2;
-  const engageF = currentStack.engageF || [];
-  function liftAt(r) {
-    return interpArr(profile.rs, profile.ys, r);
-  }
-
-  let base = 0; // cumulative shim material below
-  let cumFloat = 0; // cumulative explicit float gaps below (incl. this row's own gap)
-  let clampMaterialH = 0; // thickness of rows that never reach past the clamp line at all —
-  // real material, but with nothing to draw as its own band (see clampH below)
-  const bands = [];
-  currentRows.forEach((row, idx) => {
-    cumFloat += Math.max(0, row.float || 0);
-    const hRow = row.count * row.thickness;
-    const yRest = base + cumFloat;
-    base += hRow;
-    const rOuter = row.diam / 2;
-    if (rOuter <= aMM) {
-      clampMaterialH += hRow;
-      return;
-    }
-    const pal =
-      row.special === 'clamp-row' || row.special === 'nut-row' ? CLAMP_COLOR : SHIM_PALETTE[idx % SHIM_PALETTE.length];
-    const engagedNow = Fbase >= (engageF[idx] !== undefined ? engageF[idx] : -Infinity);
-    const N = 50;
-    const rs = [],
-      yB = [],
-      yT = [];
-    // The material between the shaft and the clamp boundary is clamped rigid (it's what
-    // the bending model treats as immovable) but it's still real shim material, so it's
-    // drawn flat out to the clamp line rather than leaving a gap at the shaft.
-    if (shaftMM < aMM) {
-      rs.push(convLen(shaftMM, 'mm', unit));
-      yB.push(convLen(yRest, 'mm', unit));
-      yT.push(convLen(yRest + hRow, 'mm', unit));
-    }
-    let runMax = 0; // contact offset carried outward — a plate can't dip back down mid-span
-    for (let s = 0; s <= N; s++) {
-      const r = aMM + ((rOuter - aMM) * s) / N;
-      if (stackSupportedAt(currentRows, idx, r)) {
-        const push = liftAt(r) - stackGapAt(currentRows, idx, r);
-        if (push > runMax) runMax = push;
-      }
-      rs.push(convLen(r, 'mm', unit));
-      yB.push(convLen(yRest + runMax, 'mm', unit));
-      yT.push(convLen(yRest + runMax + hRow, 'mm', unit));
-    }
-    bands.push({
-      rs,
-      yB,
-      yT,
-      fill: pal.fill,
-      stroke: pal.stroke,
-      dashed: row.float > 0 && !engagedNow,
-      faded: row.float > 0 && !engagedNow,
-      delta: row.type === 'deltaT',
-    });
-  });
-
-  return {
-    bands,
-    rLoadDisp: convLen(currentStack.rLoad, 'mm', unit),
-    clampDisp: convLen(aMM, 'mm', unit),
-    // The shaft/post the shims are actually threaded onto is sized by the shim ID (the
-    // hole in the shims themselves), not D.rod — a separate, unrelated dimension further
-    // up the damper at the seal. stackID is meant to stay <= clampDia (per the geometry
-    // panel's own hint text), so this normally doesn't overlap the clamp-diameter line.
-    shaftDisp: convLen(shaftMM, 'mm', unit),
-    clampMaterialDisp: convLen(clampMaterialH, 'mm', unit),
-  };
-}
-
-// Derives the stack preview's locked Y-axis scale from the calc's worst case (its max
-// configured force) so it can be computed once per calc (see runCalc()) and reused for
-// every slider position, instead of being recomputed from whatever force the slider is
-// currently at - see drawStackCanvas() for why that rescaling was the actual bug.
-function computeStackYMaxMM(FmaxMM) {
-  const { bands, rLoadDisp, clampMaterialDisp } = buildBandsAtForce(FmaxMM, 'mm');
-  let yMax = 1e-6;
-  bands.forEach((b) => {
-    for (let i = 0; i < b.yT.length; i++) {
-      if (b.rs[i] <= rLoadDisp) yMax = Math.max(yMax, b.yT[i]);
-    }
-  });
-  const tallestShimH = bands.reduce((m, b) => Math.max(m, b.yT[0] - b.yB[0]), 1e-6);
-  const clampH = clampMaterialDisp > 0 ? clampMaterialDisp : tallestShimH * 1.5;
-  yMax = Math.max(yMax, yMax + clampH);
-  return yMax * 1.18;
-}
-
+// Reads the current slider force and current stack/geom/rows, then delegates to the
+// shared, state-driven drawing functions in js/stack-visual.js (used identically by any
+// pop-out window synced to the same state).
 function drawStackAtSlider() {
   if (!currentStack || !currentRows) return;
   const Fdisp = parseFloat(document.getElementById('forceSlider').value) || 0;
   document.getElementById('sliderVal').textContent = fmtForce(Fdisp, resultUnit);
   const Fbase = convForce(Fdisp, resultUnit, 'mm');
-  const { bands, rLoadDisp, clampDisp, shaftDisp, clampMaterialDisp } = buildBandsAtForce(Fbase, resultUnit);
-  const yMaxLocked = convLen(stackYMaxLockedMM, 'mm', resultUnit);
-  drawStackCanvas(bands, rLoadDisp, clampDisp, shaftDisp, clampMaterialDisp, yMaxLocked);
-}
-
-function drawStackCanvas(bands, rLoad, clampR, shaftR, clampMaterialH, yMaxLocked) {
-  const cv = document.getElementById('stackCanvas');
-  const { ctx, w, h } = setupCanvas(cv);
-  // Extra left/top padding vs. the force chart's default (44px/14px) - the dual-unit tick
-  // labels here ("2.50mm (0.098in)") are much longer than the shared default's bare numbers.
-  const pad = { l: 88, r: 46, t: 20, b: 26 };
-  let xMax = Math.max(rLoad, clampR || 0);
-  bands.forEach((b) => {
-    xMax = Math.max(xMax, b.rs[b.rs.length - 1]);
-  });
-  // Where THIS force's shim stack currently tops out — the clamp shim is drawn stacked
-  // directly above this, like one more (thicker, black) shim on top of the sequence, not
-  // off to the side. Grows with force, unlike yMax below - that's the whole fix: this
-  // (positioning) stays dynamic, only the axis scale is locked.
-  let stackTopY = 1e-6;
-  bands.forEach((b) => {
-    // Only the physically-loaded span (out to the port edge) counts. Beyond it, the model
-    // has no applied moment, so it holds whatever rotation it had at the port and projects
-    // a straight line outward — a small rotation carried over a long unsupported rim
-    // amplifies into a tip height many times the real, loaded deflection. The tip still
-    // draws, just clipped to the plot area below instead of pulling the clamp up with it.
-    for (let i = 0; i < b.yT.length; i++) {
-      if (b.rs[i] <= rLoad) stackTopY = Math.max(stackTopY, b.yT[i]);
-    }
-  });
-  // Rows entirely inside the clamp radius (e.g. a clamp/nut row narrower than D.clamp)
-  // never get their own band, but they're still real material - fold their thickness into
-  // the clamp block's height instead of the generic fallback so the diagram doesn't lose it.
-  const tallestShimH = bands.reduce((m, b) => Math.max(m, b.yT[0] - b.yB[0]), 1e-6);
-  const clampH = clampMaterialH > 0 ? clampMaterialH : tallestShimH * 1.5;
-  xMax *= 1.03;
-  // Locked to the calc's worst-case (max configured force) state - computed once in
-  // runCalc() via computeStackYMaxMM(), not recomputed here from the current bands. If it
-  // rescaled with every slider move, the clamp block's fixed real thickness would map to
-  // fewer and fewer pixels as force (and yMax) grew, making it visibly shrink even though
-  // nothing about it actually changed - that illusion was the reported bug.
-  const yMax = yMaxLocked;
-  // Tick labels here always show both units - primary (whichever resultUnit currently is)
-  // at a fixed 2dp(mm)/3dp(in), with the other unit's equivalent in brackets at its own
-  // fixed decimal count - instead of the shared default rule (up to 4dp, no unit shown),
-  // which was needlessly precise for these frequently-sub-1mm cross-section values.
-  const fmtStackTick = (val) =>
-    resultUnit === 'mm'
-      ? `${val.toFixed(2)}mm (${convLen(val, 'mm', 'in').toFixed(3)}in)`
-      : `${val.toFixed(3)}in (${convLen(val, 'in', 'mm').toFixed(2)}mm)`;
-  drawAxes(
-    ctx,
-    w,
-    h,
-    pad,
-    xMax,
-    yMax,
-    `radius (${resultUnit === 'mm' ? 'mm' : 'in'})`,
-    `cross-section (${resultUnit === 'mm' ? 'mm' : 'in'})`,
-    undefined,
-    fmtStackTick,
-    3, // fewer ticks than the default 5 - these dual-unit labels need more room each
-    10, // slightly smaller than the default 11px tick font, same reason
+  const { bands, rLoadDisp, clampDisp, shaftDisp } = buildBandsAtForce(
+    Fbase,
+    resultUnit,
+    currentStack,
+    currentGeom,
+    currentRows,
   );
-  const X = (r) => pad.l + (w - pad.l - pad.r) * (r / xMax);
-  const Y = (y) => h - pad.b - (h - pad.t - pad.b) * (y / yMax);
-
-  // the shaft the shims are threaded onto — always beside the stack, spanning its full
-  // height, drawn first so the stack sits in front of it
-  if (shaftR > 0) {
-    ctx.fillStyle = '#cfd8e3';
-    ctx.fillRect(X(0), pad.t, X(Math.min(shaftR, xMax)) - X(0), h - pad.t - pad.b);
-    ctx.fillStyle = '#5b6472';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('shaft', X(0) + 4, pad.t + 12);
-  }
-
-  // clamp diameter — a relatively normal (if thicker) shim that never moves, stacked
-  // directly on top of the real shims rather than off to the side
-  if (clampR > shaftR) {
-    ctx.fillStyle = '#111318';
-    ctx.fillRect(X(shaftR), Y(stackTopY + clampH), X(clampR) - X(shaftR), Y(stackTopY) - Y(stackTopY + clampH));
-    ctx.fillStyle = '#fff';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('clamp', X(shaftR) + 4, Y(stackTopY + clampH / 2) + 4);
-  }
-
-  // Now that the axis no longer stretches to fit it, an unloaded overhang tip can run past
-  // the top of the plot - clip to the plot rectangle so it crops there instead of drawing
-  // over the axis title/labels above.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
-  ctx.clip();
-  bands.forEach((b) => {
-    // one smooth closed polygon per shim: along the bottom edge, back along the top edge
-    ctx.beginPath();
-    b.rs.forEach((r, i) => {
-      const x = X(r),
-        y = Y(b.yB[i]);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    for (let i = b.rs.length - 1; i >= 0; i--) ctx.lineTo(X(b.rs[i]), Y(b.yT[i]));
-    ctx.closePath();
-    ctx.globalAlpha = b.faded ? 0.55 : 1;
-    ctx.fillStyle = b.fill;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = b.stroke;
-    ctx.lineWidth = 0.8;
-    if (b.dashed) ctx.setLineDash([4, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // delta/triangle shims: hatch the outer half, where only the three lobes carry load
-    // (see shimScaleAt in physics.js) — the inner half is still a full disc, unmarked.
-    if (b.delta) {
-      const n = b.rs.length,
-        half = Math.floor(n / 2);
-      ctx.save();
-      ctx.beginPath();
-      for (let i = half; i < n; i++) {
-        const x = X(b.rs[i]),
-          y = Y(b.yB[i]);
-        if (i === half) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      for (let i = n - 1; i >= half; i--) ctx.lineTo(X(b.rs[i]), Y(b.yT[i]));
-      ctx.closePath();
-      ctx.clip();
-      ctx.strokeStyle = b.stroke;
-      ctx.lineWidth = 0.7;
-      ctx.globalAlpha = 0.75;
-      const x0 = X(b.rs[half]),
-        x1 = X(b.rs[n - 1]);
-      for (let x = x0 - 12; x <= x1 + 12; x += 4) {
-        ctx.beginPath();
-        ctx.moveTo(x, Y(0));
-        ctx.lineTo(x + 12, Y(0) - 14);
-        ctx.stroke();
-      }
-      ctx.restore();
-      ctx.globalAlpha = 1;
-    }
+  const yMaxLocked = convLen(stackYMaxLockedMM, 'mm', resultUnit);
+  drawStackCanvas(
+    document.getElementById('stackCanvas'),
+    bands,
+    rLoadDisp,
+    clampDisp,
+    shaftDisp,
+    yMaxLocked,
+    resultUnit,
+  );
+  broadcastLiveVisuals({
+    stack: { bands, rLoad: rLoadDisp, clampR: clampDisp, shaftR: shaftDisp, yMaxLocked, resultUnit },
   });
-  ctx.restore();
-
-  if (clampR > 0) {
-    // yellow, not black — a black line would vanish against the black clamp shim above
-    ctx.strokeStyle = '#eab308';
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(X(clampR), pad.t);
-    ctx.lineTo(X(clampR), h - pad.b);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // the label itself needs more contrast than the line — a darker gold reads fine on
-    // the light theme's white canvas, but is nearly invisible on the dark theme's navy one
-    ctx.fillStyle = isDarkTheme() ? '#eab308' : '#8a6d1a';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('clamp dia', X(clampR) + 4, h - pad.b - 4);
-  }
-
-  const warnColor = themeColor('--warn', '#c0392b');
-  ctx.strokeStyle = warnColor;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath();
-  ctx.moveTo(X(rLoad), pad.t);
-  ctx.lineTo(X(rLoad), h - pad.b);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = warnColor;
-  ctx.font = '11px sans-serif';
-  ctx.fillText('port edge', X(rLoad) + 4, pad.t + 12);
 }
 
 /* ---- pinned comparison curves + force-axis control ---- */
@@ -1696,224 +1530,46 @@ function restoreAxisPrefs() {
 let forceChartMap = null; // {pad,w,h,xMax,yMax,yMin} in display units — for hit-testing
 let hiddenCurves = new Set(); // labels of curves toggled off via the legend
 let legendHits = []; // clickable legend rects {label,x0,y0,x1,y1}
+// Gathers current state + axis-preference DOM values and delegates to the shared,
+// state-driven js/force-curve-visual.js - forceChartMap/legendHits are this page's own
+// pointer-interaction state (target-handle dragging, legend-click hide/show), fed back
+// from the pure function's return value.
 function drawForceCurve() {
-  const cv = document.getElementById('forceCanvas');
-  const { ctx, w, h } = setupCanvas(cv);
-  const pad = { l: 52, r: 16, t: 14, b: 26 };
-
-  const curves = [];
-  pinnedCurves.forEach((p) => {
-    curves.push({
-      label: p.name,
-      color: p.color,
-      width: 1.6,
-      dash: [5, 3],
-      dots: false,
-      pts: p.results.map((q) => ({ u: convVel(q.u, 'mm', resultUnit), F: convForce(q.F, 'mm', resultUnit) })),
-    });
-  });
-  if (currentResults.length) {
-    curves.push({
-      label: 'current',
-      color: '#0f9d58',
-      width: 2.2,
-      dash: [],
-      dots: true,
-      pts: currentResults.map((p) => ({ u: convVel(p.u, 'mm', resultUnit), F: convForce(p.F, 'mm', resultUnit) })),
-    });
-  }
-  optCandidates.forEach((c) => {
-    curves.push({
-      label: c.label,
-      color: c.color,
-      width: 1.8,
-      dash: [2, 3],
-      dots: false,
-      pts: c.curve.map((p) => ({ u: convVel(p.u, 'mm', resultUnit), F: convForce(p.F, 'mm', resultUnit) })),
-    });
-  });
-  // stock reference + target contribute to scaling and are drawn separately
-  const stockPts =
-    targetOn && stockCurve
-      ? stockCurve.map((p) => ({ u: convVel(p.u, 'mm', resultUnit), F: convForce(p.F, 'mm', resultUnit) }))
-      : [];
-  const tgtPts =
-    targetOn && targetHandles.length
-      ? targetHandles.map((hn) => ({ u: convVel(hn.u, 'mm', resultUnit), F: convForce(hn.F, 'mm', resultUnit) }))
-      : [];
-  if (!curves.length && !tgtPts.length) return;
-
-  // a curve is drawn/scaled only if not hidden (click its legend entry to toggle)
-  const vis = (c) => !hiddenCurves.has(c.label);
-  const stockHidden = hiddenCurves.has('stock (reference)');
-  const visCurves = curves.filter(vis);
-  const scaleStock = stockPts.length && !stockHidden;
-  const allX = [
-    ...visCurves.flatMap((c) => c.pts.map((p) => p.u)),
-    ...(scaleStock ? stockPts.map((p) => p.u) : []),
-    ...tgtPts.map((p) => p.u),
-  ];
-  const allYForAuto = [
-    ...visCurves.flatMap((c) => c.pts.map((p) => p.F)),
-    ...(scaleStock ? stockPts.map((p) => p.F) : []),
-    ...tgtPts.map((p) => p.F),
-  ];
   const xModeEl = document.getElementById('xAxisMode');
-  const xMode = xModeEl ? xModeEl.value : 'auto';
   const xMaxEl = document.getElementById('axisMaxU');
-  const xFixed = xMaxEl ? parseFloat(xMaxEl.value) || 0 : 0;
-  const xMax = xMode === 'fixed' && xFixed > 0 ? xFixed : Math.max(1, ...allX) * 1.05;
   const modeEl = document.getElementById('axisMode');
-  const mode = modeEl ? modeEl.value : 'auto';
   const fEl = document.getElementById('axisMaxF'),
     fminEl = document.getElementById('axisMinF');
-  const fixedMax = fEl ? parseFloat(fEl.value) || 0 : 0;
-  const fixedMin = fminEl ? parseFloat(fminEl.value) || 0 : 0;
-  let yMin, yMax;
-  if (mode === 'fixed' && fixedMax > fixedMin) {
-    yMin = fixedMin;
-    yMax = fixedMax;
-  } else {
-    yMin = 0;
-    yMax = Math.max(1, ...allYForAuto) * 1.15;
-  }
-
-  // Shaft velocity always reads in m/s (2dp) with in/s (3dp) in brackets on this chart,
-  // independent of the Metric/Imperial resultUnit toggle (which still governs the Y axis -
-  // force - and everything else). `val` arrives in whatever unit resultUnit currently is,
-  // since that's still what the chart's own X-axis scale (xMax above) is plotted in.
-  const fmtForceChartTick = (val, axis) => {
-    if (axis !== 'x') return defaultTickFmt(val);
-    const mm = convVel(val, resultUnit, 'mm');
-    return `${(mm / 1000).toFixed(2)}m/s (${convVel(mm, 'mm', 'in').toFixed(3)}in/s)`;
+  const forceOpts = {
+    resultUnit,
+    pinnedCurves,
+    currentResults,
+    optCandidates,
+    targetOn,
+    stockCurve,
+    targetHandles,
+    hiddenCurves,
+    dragHandle,
+    xMode: xModeEl ? xModeEl.value : 'auto',
+    xFixed: xMaxEl ? parseFloat(xMaxEl.value) || 0 : 0,
+    mode: modeEl ? modeEl.value : 'auto',
+    fixedMax: fEl ? parseFloat(fEl.value) || 0 : 0,
+    fixedMin: fminEl ? parseFloat(fminEl.value) || 0 : 0,
   };
-  drawAxes(
-    ctx,
-    w,
-    h,
-    pad,
-    xMax,
-    yMax,
-    'shaft velocity',
-    `damping force (${resultUnit === 'mm' ? 'N' : 'lbf'})`,
-    yMin,
-    fmtForceChartTick,
-    3, // fewer ticks than the default 5 - the m/s(in/s) X labels need more room each
-    10, // slightly smaller than the default 11px tick font, same reason
+  const { forceChartMap: fcm, legendHits: lh } = drawForceCurveVisual(
+    document.getElementById('forceCanvas'),
+    forceOpts,
   );
-  const X = (u) => pad.l + (w - pad.l - pad.r) * (u / xMax);
-  const Y = (F) => h - pad.b - (h - pad.t - pad.b) * ((F - yMin) / (yMax - yMin));
-  forceChartMap = { pad, w, h, xMax, yMax, yMin };
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
-  ctx.clip();
-
-  if (stockPts.length && !stockHidden) {
-    ctx.strokeStyle = themeColor('--muted', '#9aa3b0');
-    ctx.lineWidth = 1.4;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    stockPts.forEach((p, i) => {
-      const x = X(p.u),
-        y = Y(p.F);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  }
-
-  visCurves.forEach((c) => {
-    ctx.strokeStyle = c.color;
-    ctx.lineWidth = c.width;
-    ctx.setLineDash(c.dash);
-    ctx.beginPath();
-    c.pts.forEach((p, i) => {
-      const x = X(p.u),
-        y = Y(p.F);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-    if (c.dots) {
-      ctx.fillStyle = c.color;
-      c.pts.forEach((p) => {
-        ctx.beginPath();
-        ctx.arc(X(p.u), Y(p.F), 2.2, 0, 7);
-        ctx.fill();
-      });
-    }
-  });
-
-  if (tgtPts.length) {
-    const lineP = [{ u: 0, F: 0 }, ...tgtPts];
-    ctx.strokeStyle = '#c026d3';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    lineP.forEach((p, i) => {
-      const x = X(p.u),
-        y = Y(p.F);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  ctx.restore();
-  ctx.setLineDash([]);
-
-  if (tgtPts.length) {
-    tgtPts.forEach((p, i) => {
-      const x = X(p.u),
-        y = Y(p.F);
-      ctx.fillStyle = i === dragHandle ? '#a21caf' : '#c026d3';
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.rect(x - 4, y - 4, 8, 8);
-      ctx.fill();
-      ctx.stroke();
-    });
-  }
-
-  // legend (top-left) — every entry is clickable to hide/show that line. Hidden ones are
-  // greyed and struck through. Hit rectangles are saved for the pointer handler.
-  ctx.font = '11px sans-serif';
-  let ly = pad.t + 12;
-  legendHits = [];
-  const inkColor = themeColor('--ink', '#1c2430');
-  const legend = curves.map((c) => ({ label: c.label, color: c.color, dash: c.dash }));
-  if (stockPts.length) legend.unshift({ label: 'stock (reference)', color: themeColor('--muted', '#9aa3b0'), dash: [] });
-  if (tgtPts.length) legend.push({ label: 'target', color: '#c026d3', dash: [6, 4], noHide: true });
-  legend.forEach((c) => {
-    const hidden = hiddenCurves.has(c.label);
-    ctx.globalAlpha = hidden ? 0.4 : 1;
-    ctx.strokeStyle = c.color;
-    ctx.lineWidth = 2;
-    ctx.setLineDash(c.dash || []);
-    ctx.beginPath();
-    ctx.moveTo(pad.l + 8, ly - 3);
-    ctx.lineTo(pad.l + 30, ly - 3);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = inkColor;
-    const tw = ctx.measureText(c.label).width;
-    ctx.fillText(c.label, pad.l + 36, ly);
-    if (hidden) {
-      ctx.strokeStyle = inkColor;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pad.l + 36, ly - 3);
-      ctx.lineTo(pad.l + 36 + tw, ly - 3);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    if (!c.noHide) legendHits.push({ label: c.label, x0: pad.l + 4, y0: ly - 12, x1: pad.l + 40 + tw, y1: ly + 4 });
-    ly += 15;
-  });
+  forceChartMap = fcm;
+  legendHits = lh;
+  // dragHandle is main-page-only interaction state (which target handle is mid-drag) - the
+  // pop-out is a read-only mirror, so it's dropped rather than broadcast. hiddenCurves is a
+  // Set, which doesn't survive the JSON round-trip through localStorage (see live-sync.js) -
+  // sent as a plain array instead; the pop-out rebuilds the Set before drawing.
+  const forceForBroadcast = { ...forceOpts };
+  delete forceForBroadcast.dragHandle;
+  forceForBroadcast.hiddenCurves = [...hiddenCurves];
+  broadcastLiveVisuals({ force: forceForBroadcast });
 }
 
 /* =========================================================
@@ -2214,7 +1870,7 @@ function runOptimize(v, catalog) {
     let stack;
     try {
       stack = buildStack(rows, geom, mech, { Fmax, nSteps: 55, nSeg: 110 });
-    } catch (e) {
+    } catch {
       return null;
     }
     let se = 0;
@@ -2252,7 +1908,6 @@ function runOptimize(v, catalog) {
   function neighbors(c) {
     const cc = prep(c);
     const out = [];
-    const fc = faceCnt(cc);
     cc.forEach((s, i) => {
       thksFor(s.od, s.type).forEach((t) => {
         if (Math.abs(t - s.thk) > 1e-9) {
@@ -2387,7 +2042,7 @@ function runOptimize(v, catalog) {
 
   // rank all evaluated feasible stacks by the (coarse) search score, keep the distinct top set
   const ranked = [...cache.entries()]
-    .filter(([k, e]) => e)
+    .filter(([, e]) => e)
     .map(([k, e]) => ({ sig: k, e, s: score(e) }))
     .sort((a, b) => a.s - b.s);
   const seen = new Set(),
@@ -2414,7 +2069,7 @@ function runOptimize(v, catalog) {
       let stack;
       try {
         stack = buildStack(rowsMM, geom, mech, { Fmax, nSteps: 150, nSeg: 350 });
-      } catch (err) {
+      } catch {
         return null;
       }
       let se = 0;
@@ -2620,6 +2275,7 @@ function saveConfig() {
 // load-config flow and restoring the last-used session on startup (see init()). Throws
 // on malformed input (missing/non-object geom, fluid, etc.) — callers decide how to react.
 function applyConfigToUI(cfg) {
+  clampDiaUserSet = false;
   setFieldValueAndUnit('dRod', fmtLen(cfg.geom.dRod, 'mm'), 'mm');
   setFieldValueAndUnit('dValve', fmtLen(cfg.geom.dValve, 'mm'), 'mm');
   setFieldValueAndUnit('rPort', fmtLen(cfg.geom.rPort, 'mm'), 'mm');
@@ -2638,12 +2294,19 @@ function applyConfigToUI(cfg) {
   document.getElementById('nu').value = cfg.mech.nu;
   document.getElementById('rho').value = cfg.fluid.rho;
   document.getElementById('cd').value = cfg.fluid.Cd;
-  document.getElementById('cst40').value = cfg.fluid.cSt40;
-  document.getElementById('cst100').value = cfg.fluid.cSt100;
+  // Restores into Oil 1's card and makes it active - older saved configs/sessions
+  // (before the fluid model generalized to arbitrary calibration points) stored
+  // cSt40/cSt100 directly, so fall back to those if t1/v1/t2/v2 aren't present.
+  document.getElementById('temp1_m').value = cfg.fluid.t1 != null ? cfg.fluid.t1 : 40;
+  document.getElementById('visc1_m').value = cfg.fluid.v1 != null ? cfg.fluid.v1 : cfg.fluid.cSt40;
+  document.getElementById('temp2_m').value = cfg.fluid.t2 != null ? cfg.fluid.t2 : 100;
+  document.getElementById('visc2_m').value = cfg.fluid.v2 != null ? cfg.fluid.v2 : cfg.fluid.cSt100;
+  document.getElementById('oilActive1').checked = true;
+  document.getElementById('oilActive2').checked = false;
+  oilTempUserSet = false;
   document.getElementById('oilTemp').value = cfg.fluid.tempC;
   document.getElementById('re0').value = cfg.fluid.Re0;
-  document.getElementById('viscMode').value = 'direct';
-  onViscModeChange();
+  recalcOilCompare();
   document.getElementById('valveType').value = cfg.valveType;
   resultUnit = 'mm';
   document.getElementById('resultUnit').value = 'mm';
@@ -2754,6 +2417,7 @@ function loadValveSetup(name) {
   const setups = lsGet(VS_KEY) || {};
   const s = setups[name];
   if (!s) return;
+  clampDiaUserSet = false;
   setFieldValueAndUnit('dRod', fmtLen(s.dRod, 'mm'), 'mm');
   setFieldValueAndUnit('dValve', fmtLen(s.dValve, 'mm'), 'mm');
   setFieldValueAndUnit('rPort', fmtLen(s.rPort, 'mm'), 'mm');
@@ -2785,14 +2449,18 @@ function deleteValveSetup() {
 /* ---- collapsible + draggable panels, saved layout ---- */
 const LAYOUT_KEY = 'sst_layout_v1';
 const COLLAPSE_KEY = 'sst_collapsed_v1';
-const DEFAULT_LAYOUT = { colMain: ['p-workspace', 'p-geom', 'p-advanced'] };
-// The oil/shim-material panel is advanced/rarely-touched, so it starts collapsed —
-// both for a brand-new user (nothing in localStorage yet) and after "Reset layout".
-const DEFAULT_COLLAPSED = ['p-advanced'];
+const DEFAULT_LAYOUT = {
+  colMain: ['p-workspace', 'p-oil', 'p-geom', 'p-advanced', 'p-spring-calc', 'p-shim-delta', 'p-wheel-force'],
+};
+// The oil/shim-material panel is advanced/rarely-touched, and Spring Calculator/Shim Delta/
+// Wheel Force are secondary/independent tools - all start collapsed for a brand-new user
+// (nothing in localStorage yet) and after "Reset layout".
+const DEFAULT_COLLAPSED = ['p-advanced', 'p-spring-calc', 'p-shim-delta', 'p-wheel-force'];
 
 function redrawAllVisuals() {
   drawShimRefDiagram();
   drawPortFaceDiagram();
+  drawOilChart();
   if (currentStack) {
     drawStackAtSlider();
   }
@@ -2868,6 +2536,19 @@ function initPanelUX() {
   });
 }
 
+/* ---- pop-out windows (live mirrors of a chart/table, see js/live-sync.js) ---- */
+const popoutWindows = {};
+function openPopout(key, url, w, h) {
+  const existing = popoutWindows[key];
+  if (existing && !existing.closed) {
+    existing.focus();
+    return;
+  }
+  const left = window.screenX + 60,
+    top = window.screenY + 60;
+  popoutWindows[key] = window.open(url, 'sst-popout-' + key, `width=${w},height=${h},left=${left},top=${top}`);
+}
+
 function wireStaticControls() {
   document.querySelectorAll('.fieldUnit').forEach((sel) => {
     sel.addEventListener('change', () => onFieldUnitChange(sel));
@@ -2890,11 +2571,6 @@ function wireStaticControls() {
     ['valveSel', 'change', () => onValveChange()],
     ['tuneSel', 'change', () => onTuneChange()],
     ['saveValveGeomBtn', 'click', () => saveValveGeom()],
-    ['viscMode', 'change', () => onViscModeChange()],
-    ['cst40', 'input', () => onDirectCstChange()],
-    ['cst100', 'input', () => onDirectCstChange()],
-    ['isoVG', 'input', () => onViscModeChange()],
-    ['saeWt', 'input', () => onViscModeChange()],
     ['resultUnit', 'change', (e) => switchResultUnit(e.target.value)],
     ['recalcBtn', 'click', () => runCalc()],
     ['saveConfigBtn', 'click', () => saveConfig()],
@@ -2915,6 +2591,10 @@ function wireStaticControls() {
     ['optBtn', 'click', () => optimizeToTarget()],
     ['clearSuggestionsBtn', 'click', () => clearSuggestions()],
     ['photoFile', 'change', loadPhotoFile],
+    ['popoutStackBtn', 'click', () => openPopout('stack', 'popout-stack.html', 520, 480)],
+    ['popoutForceBtn', 'click', () => openPopout('force', 'popout-force.html', 620, 480)],
+    ['popoutOilBtn', 'click', () => openPopout('oil', 'popout-oil.html', 620, 480)],
+    ['popoutShimsBtn', 'click', () => openPopout('shims', 'popout-shims.html', 480, 520)],
     ['photoUndoBtn', 'click', () => photoUndo()],
     ['photoFinishPortBtn', 'click', () => photoFinishPort()],
     ['photoResetBtn', 'click', () => photoReset()],
@@ -2949,6 +2629,30 @@ async function init() {
     box.textContent = `Couldn't load the shim/valve catalog (${err.message}). Stock-product presets and the catalog parts bin are unavailable this session — custom stacks still work.`;
     box.style.display = 'block';
   }
+  try {
+    await loadOils();
+    // Picking a preset just fills in that card's calibration fields (always at 40/100,
+    // since that's what data/oils.json's manufacturer-datasheet entries are keyed to);
+    // the fields stay editable afterward like any other value.
+    const optionsHtml =
+      '<option value="">— custom —</option>' + OILS.map((o) => `<option value="${o.id}">${o.label}</option>`).join('');
+    document.querySelectorAll('.oilPresetSel').forEach((sel) => {
+      sel.innerHTML = optionsHtml;
+      sel.addEventListener('change', () => {
+        const oil = OILS.find((o) => o.id === sel.value);
+        if (!oil) return;
+        const suffix = sel.dataset.suffix;
+        document.getElementById(suffix ? 'oil2_name' : 'oil1_name').value = oil.label;
+        document.getElementById('temp1_m' + suffix).value = 40;
+        document.getElementById('visc1_m' + suffix).value = oil.cst40;
+        document.getElementById('temp2_m' + suffix).value = 100;
+        document.getElementById('visc2_m' + suffix).value = oil.cst100;
+        recalcOilCompare();
+      });
+    });
+  } catch (err) {
+    console.warn('Could not load the oil library:', err.message); // preset pickers just stay empty; custom values still work
+  }
   wireStaticControls();
   const shimBody = document.getElementById('shimBody');
   shimBody.addEventListener('input', () => {
@@ -2980,10 +2684,54 @@ async function init() {
     applyCandidate(parseInt(btn.dataset.idx, 10));
   });
   document.getElementById('stackID').addEventListener('input', drawShimRefDiagram);
-  document.getElementById('clampDia').addEventListener('input', drawShimRefDiagram);
+  document.getElementById('clampDia').addEventListener('input', () => {
+    if (!settingClampDiaAuto) {
+      clampDiaUserSet = true;
+      const note = document.getElementById('clampDiaAutoNote');
+      if (note) note.textContent = '';
+    }
+    drawShimRefDiagram();
+  });
   ['rPort', 'dPort', 'wPort', 'nPort', 'dValve', 'dRod'].forEach((id) => {
     document.getElementById(id).addEventListener('input', drawPortFaceDiagram);
   });
+  document.getElementById('oilActive1').addEventListener('change', onOilActiveChange);
+  document.getElementById('oilActive2').addEventListener('change', onOilActiveChange);
+  document.getElementById('oilTemp').addEventListener('input', () => {
+    if (!settingOilTempAuto) oilTempUserSet = true;
+  });
+  [
+    'oil1_name',
+    'temp1_m',
+    'visc1_m',
+    'temp2_m',
+    'visc2_m',
+    'tempx_m',
+    'oil2_name',
+    'temp1_m_2',
+    'visc1_m_2',
+    'temp2_m_2',
+    'visc2_m_2',
+    'tempx_m_2',
+  ].forEach((id) => document.getElementById(id).addEventListener('input', recalcOilCompare));
+  document.getElementById('toggle_crosshair').addEventListener('change', drawOilChart);
+  const oilChartCanvas = document.getElementById('oilChart');
+  oilChartCanvas.addEventListener('mousemove', (e) => {
+    if (!oilPlotState || !document.getElementById('toggle_crosshair').checked) return;
+    const rect = oilChartCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const t = OIL_MIN_TEMP + ((x - oilPlotState.pad.l) / oilPlotState.pw) * (OIL_MAX_TEMP - OIL_MIN_TEMP);
+    if (t < OIL_MIN_TEMP || t > OIL_MAX_TEMP) return;
+    setOilProbeTemp(t);
+  });
+  oilChartCanvas.addEventListener('click', (e) => {
+    if (!oilPlotState) return;
+    const rect = oilChartCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const t = OIL_MIN_TEMP + ((x - oilPlotState.pad.l) / oilPlotState.pw) * (OIL_MAX_TEMP - OIL_MIN_TEMP);
+    setOilProbeTemp(t);
+  });
+  new ResizeObserver(() => drawOilChart()).observe(oilChartCanvas.parentElement);
   document.getElementById('photoCanvas').addEventListener('click', photoCanvasClick);
   new ResizeObserver(() => {
     if (photoImg) drawPhotoCanvas();
@@ -3060,8 +2808,8 @@ async function init() {
       console.warn('Could not restore last-used config, falling back to the example stack:', err);
     }
   }
-  if (!restored) loadExample();
-  onViscModeChange();
+  if (!restored) loadDefaultTune();
+  recalcOilCompare();
   drawPortFaceDiagram();
   runCalc({ live: true }); // populate outputs immediately on load
   window.addEventListener('resize', () => {

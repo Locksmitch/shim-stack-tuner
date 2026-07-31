@@ -263,7 +263,7 @@ describe('solveForceAtVelocity', () => {
     nThrt: 0,
   };
   const mech = { E: 200000, nu: 0.3 };
-  const fluid = { cSt40: 30, cSt100: 6, tempC: 40, rho: 850, Cd: 0.65, Re0: 10 };
+  const fluid = { t1: 40, v1: 30, t2: 100, v2: 6, tempC: 40, rho: 850, Cd: 0.65, Re0: 10 };
 
   test('zero or negative velocity produces zero force with no solve', () => {
     const rows = [{ count: 1, diam: 20, thickness: 0.5, float: 0 }];

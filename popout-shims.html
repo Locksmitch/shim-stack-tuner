@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shim Table Preview — Valving Toolbox</title>
+    <script>
+      (function () {
+        var t = localStorage.getItem('sst_theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      .popout-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        font-size: 12.5px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--line);
+      }
+      .popout-bar .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #16a34a;
+        flex: none;
+      }
+      .popout-body {
+        padding: 14px;
+      }
+      #emptyHint {
+        margin: 40px auto 0;
+        max-width: 320px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="popout-bar"><span class="dot"></span> Live-synced from the Shim Stack Tuner</div>
+    <div class="popout-body">
+      <table id="shimTable">
+        <thead>
+          <tr>
+            <th class="col-count">Count</th>
+            <th class="col-diam">Diameter</th>
+            <th class="col-dec">Thickness</th>
+            <th class="col-dec">Float</th>
+            <th>Type</th>
+            <th>Unit</th>
+          </tr>
+        </thead>
+        <tbody id="shimBody"></tbody>
+      </table>
+      <p id="emptyHint" style="display: none">
+        No shim rows yet — build a stack in the Shim Stack Tuner tab to see it here.
+      </p>
+    </div>
+    <script type="module">
+      import { renderShimTableReadOnly } from './js/shim-table-visual.js';
+      import { readLiveVisualsSnapshot, subscribeLiveVisuals } from './js/live-sync.js';
+
+      const tbody = document.getElementById('shimBody');
+      const table = document.getElementById('shimTable');
+      const emptyHint = document.getElementById('emptyHint');
+      let last = null;
+
+      function redraw() {
+        if (!last || !last.rows || !last.rows.length) {
+          table.style.display = 'none';
+          emptyHint.style.display = '';
+          return;
+        }
+        table.style.display = '';
+        emptyHint.style.display = 'none';
+        renderShimTableReadOnly(tbody, last.rows, last.unit);
+      }
+
+      function applySnapshot(snap) {
+        if (snap && snap.shims) {
+          last = snap.shims;
+          redraw();
+        }
+      }
+
+      applySnapshot(readLiveVisualsSnapshot());
+      subscribeLiveVisuals(applySnapshot);
+
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'sst_theme' && e.newValue) {
+          document.documentElement.dataset.theme = e.newValue;
+        }
+      });
+    </script>
+  </body>
+</html>

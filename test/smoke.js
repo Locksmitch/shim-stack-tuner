@@ -1,5 +1,6 @@
-// Automated smoke test: starts the local server, loads each page in a
-// headless browser, and fails if a page errors or its JS doesn't run.
+// Automated smoke test: starts the local server, loads the hub page and the merged
+// shim-stack-tuner.html (which now hosts every tool as its own panel) in a headless
+// browser, and fails if a page errors or its JS doesn't run.
 const { spawn } = require('child_process');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -98,10 +99,9 @@ async function run() {
       }
       const toolLinks = [
         'shim-stack-tuner.html',
-        'spring-calculator.html',
-        'shim-delta.html',
-        'oil-viscosity.html',
-        'spring-damper-curve.html',
+        'shim-stack-tuner.html#p-spring-calc',
+        'shim-stack-tuner.html#p-shim-delta',
+        'shim-stack-tuner.html#p-wheel-force',
       ];
       for (const href of toolLinks) {
         const count = await page.locator(`a[href="${href}"]`).count();
@@ -159,6 +159,32 @@ async function run() {
       await page.locator('#targetOn').check();
       await page.click('#optBtn');
       await page.waitForTimeout(1500);
+
+      // Oil viscosity comparison panel (merged from the former standalone page): loads
+      // clean, probe values compute, chart renders, click-to-probe works.
+      const cst = await page.textContent('#viscx_m');
+      if (!cst || cst === '—') {
+        throw new Error(`Oil viscosity panel: expected #viscx_m to show a computed value, got: "${cst}"`);
+      }
+      await page.locator('#oilChart').scrollIntoViewIfNeeded();
+      const oilBox = await page.locator('#oilChart').boundingBox();
+      await page.mouse.click(oilBox.x + oilBox.width / 2, oilBox.y + oilBox.height / 2);
+      await page.waitForTimeout(100);
+      const probeAfterClick = await page.$eval('#tempx_m', (el) => el.value);
+      if (!probeAfterClick) throw new Error('Oil viscosity panel: probe temp did not update after clicking the chart');
+
+      // Switching the active oil should reset Oil temperature to 21°C by default.
+      await page.check('#oilActive2');
+      await page.waitForTimeout(100);
+      const oilTempAfterSwitch = await page.$eval('#oilTemp', (el) => el.value);
+      if (oilTempAfterSwitch !== '21') {
+        throw new Error(
+          `Oil viscosity panel: expected #oilTemp to reset to 21 after switching oils, got: "${oilTempAfterSwitch}"`,
+        );
+      }
+      const active1Checked = await page.$eval('#oilActive1', (el) => el.checked);
+      if (active1Checked)
+        throw new Error('Oil viscosity panel: expected #oilActive1 to be unchecked after checking #oilActive2');
 
       if (errors.length > 0) throw new Error('Shim Stack Tuner console/page errors:\n' + errors.join('\n'));
       await page.close();
@@ -285,10 +311,14 @@ async function run() {
       await page.close();
     }
 
-    // ---- Spring Curve Calculator: loads clean, chart renders, popout opens ----
+    // ---- Spring Curve Calculator panel (merged from the former spring-calculator.html):
+    // expand it, chart renders, popout opens ----
     {
-      const { page, errors } = await loadAndCollectErrors(browser, 'spring-calculator.html');
-      await page.waitForSelector('#chart', { timeout: 5000 });
+      const { page, errors } = await loadAndCollectErrors(browser, 'shim-stack-tuner.html');
+      await page.waitForSelector('h1', { timeout: 5000 });
+      await page.click('#p-spring-calc h2'); // expand (default-collapsed)
+      await page.waitForTimeout(300);
+
       const rateText = await page.textContent('#a_ks');
       if (!rateText || rateText.includes('—')) {
         throw new Error(`Spring calculator: expected #a_ks to show a computed rate, got: "${rateText}"`);
@@ -301,62 +331,30 @@ async function run() {
       await page.close();
     }
 
-    // ---- Shim Delta Tool: loads clean, delta renders for the default pair ----
+    // ---- Shim Delta Tool panel (merged from the former shim-delta.html): expand it, delta
+    // renders for the default pair ----
     {
-      const { page, errors } = await loadAndCollectErrors(browser, 'shim-delta.html');
+      const { page, errors } = await loadAndCollectErrors(browser, 'shim-stack-tuner.html');
+      await page.waitForSelector('h1', { timeout: 5000 });
+      await page.click('#p-shim-delta h2'); // expand (default-collapsed)
       await page.waitForSelector('#output .summary-grid', { timeout: 5000 });
       if (errors.length > 0) throw new Error('Shim delta tool console/page errors:\n' + errors.join('\n'));
       await page.close();
     }
 
-    // ---- Oil Viscosity Comparison: loads clean, probe values compute, chart renders ----
-    {
-      const { page, errors } = await loadAndCollectErrors(browser, 'oil-viscosity.html');
-      await page.waitForSelector('#chart', { timeout: 5000 });
-      const cst = await page.textContent('#viscx_m');
-      if (!cst || cst === '—') {
-        throw new Error(`Oil viscosity: expected #viscx_m to show a computed value, got: "${cst}"`);
-      }
-      // Click on the chart and confirm the probe temp field followed the click.
-      const box = await page.locator('#chart').boundingBox();
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      await page.waitForTimeout(100);
-      const probeAfterClick = await page.$eval('#tempx_m', (el) => el.value);
-      if (!probeAfterClick) throw new Error('Oil viscosity: probe temp did not update after clicking the chart');
-      if (errors.length > 0) throw new Error('Oil viscosity console/page errors:\n' + errors.join('\n'));
-      await page.close();
-    }
-
-    // ---- Wheel Force Curve: no-config state in a fresh context ----
-    {
-      const { page, errors } = await loadAndCollectErrors(browser, 'spring-damper-curve.html');
-      await page.waitForSelector('#chart', { timeout: 5000 });
-      const syncText = await page.textContent('#syncStatus');
-      if (!syncText || !syncText.includes('No valve config found')) {
-        throw new Error(`Wheel force: expected "no config" sync status, got: "${syncText}"`);
-      }
-      const disabled = await page.$eval('#velocity', (el) => el.disabled);
-      if (!disabled) throw new Error('Wheel force: expected velocity slider disabled with no synced config');
-      if (errors.length > 0) throw new Error('Wheel force (no config) console/page errors:\n' + errors.join('\n'));
-      await page.close();
-    }
-
-    // ---- Wheel Force Curve: synced-from-tuner state (same page/context, so localStorage
-    // written by the tuner is visible - browser.newPage() would start a fresh, empty one) ----
+    // ---- Wheel Force Curve panel (merged from the former spring-damper-curve.html): it
+    // shares the same page load as the tuner, so by the time its own script runs, app.js's
+    // initial runCalc({live:true}) has already written sst_live_config_v1 - it's synced from
+    // the moment the panel is expanded, with no separate tab and no export/import step. ----
     {
       const { page, errors } = await loadAndCollectErrors(browser, 'shim-stack-tuner.html');
       await page.waitForSelector('h1', { timeout: 5000 });
-      await page.waitForTimeout(300); // let the initial synchronous runCalc({live:true}) persist
-      const hasConfig = await page.evaluate(() => localStorage.getItem('sst_live_config_v1') !== null);
-      if (!hasConfig) throw new Error('Tuner did not persist sst_live_config_v1 after initial load');
-
-      errors.length = 0; // remaining checks are scoped to the new page, not the tuner
-      await page.goto(BASE + 'spring-damper-curve.html', { waitUntil: 'networkidle' });
-      await page.waitForSelector('#chart', { timeout: 5000 });
+      await page.click('#p-wheel-force h2'); // expand (default-collapsed)
+      await page.waitForTimeout(300);
 
       const syncText = await page.textContent('#syncStatus');
       if (!syncText || syncText.includes('No valve config found')) {
-        throw new Error(`Wheel force: expected a synced status, got: "${syncText}"`);
+        throw new Error(`Wheel force: expected a synced status on initial load, got: "${syncText}"`);
       }
       const enabled = await page.$eval('#velocity', (el) => !el.disabled);
       if (!enabled) throw new Error('Wheel force: expected velocity slider enabled once synced');
@@ -374,7 +372,90 @@ async function run() {
         throw new Error('Wheel force: expected damper-force readout to change after moving the velocity slider');
       }
 
-      if (errors.length > 0) throw new Error('Wheel force (synced) console/page errors:\n' + errors.join('\n'));
+      // Editing a value in the workspace above should re-sync this panel on the spot, with no
+      // "Refresh" click needed - proves the same-page sst-live-config-changed event works
+      // (the native 'storage' event only fires in *other* tabs, never on this same page).
+      const syncBefore = await page.textContent('#syncStatus');
+      await page.fill('#clampDia', '15');
+      await page.dispatchEvent('#clampDia', 'input');
+      await page.waitForTimeout(300);
+      const syncAfter = await page.textContent('#syncStatus');
+      if (syncAfter === syncBefore) {
+        throw new Error('Wheel force: expected sync status to update after a live edit elsewhere on the page');
+      }
+
+      if (errors.length > 0) throw new Error('Wheel force console/page errors:\n' + errors.join('\n'));
+      await page.close();
+    }
+
+    // ---- Pop-out windows: each of the 4 buttons opens a real, separate browser window
+    // (window.open(), not an in-page overlay) that paints immediately from the last-known
+    // sst_live_visuals_v1 snapshot and then live-updates via BroadcastChannel when the main
+    // page recomputes - no export/import step, no page reload. A canvas is checked by
+    // sampling distinct pixel colors: a chart that only cleared to background paints exactly
+    // 1 distinct color, which is exactly the failure mode this catches (the hiddenCurves Set
+    // not surviving the JSON round-trip through localStorage silently blanked the force
+    // pop-out's first paint - see broadcastLiveVisuals()/readLiveVisualsSnapshot() in
+    // js/live-sync.js). ----
+    {
+      const { page, errors } = await loadAndCollectErrors(browser, 'shim-stack-tuner.html');
+      await page.waitForSelector('h1', { timeout: 5000 });
+      await page.waitForTimeout(300); // let the initial synchronous runCalc({live:true}) broadcast
+      const context = page.context();
+
+      async function openPopout(btnId) {
+        const [popup] = await Promise.all([context.waitForEvent('page'), page.click(btnId)]);
+        await popup.waitForLoadState('networkidle');
+        await popup.waitForTimeout(300);
+        return popup;
+      }
+
+      function distinctColorCount(popup, canvasId) {
+        return popup.evaluate((id) => {
+          const cv = document.getElementById(id);
+          const ctx = cv.getContext('2d');
+          const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+          const seen = new Set();
+          for (let i = 0; i < data.length; i += 4 * 61) seen.add(data[i] + ',' + data[i + 1] + ',' + data[i + 2]);
+          return seen.size;
+        }, canvasId);
+      }
+
+      // Stack + Force + Oil: each paints more than the single background color on open.
+      for (const [btnId, canvasId, label] of [
+        ['#popoutStackBtn', 'stackCanvas', 'Shim stack'],
+        ['#popoutForceBtn', 'forceCanvas', 'Force curve'],
+        ['#popoutOilBtn', 'oilChart', 'Oil viscosity'],
+      ]) {
+        const popup = await openPopout(btnId);
+        const n = await distinctColorCount(popup, canvasId);
+        if (n < 2) throw new Error(`${label} pop-out: expected a real initial paint, got only ${n} distinct color(s)`);
+        await popup.close();
+      }
+
+      // Shim table pop-out: row count matches the main table, and grows after a live edit.
+      {
+        const popup = await openPopout('#popoutShimsBtn');
+        const rowCount = await popup.$$eval('#shimBody tr', (rows) => rows.length);
+        if (rowCount < 2) throw new Error(`Shim table pop-out: expected populated rows, got ${rowCount}`);
+
+        await page.click('#addShimRowBtn');
+        await page.waitForTimeout(300);
+        const rowCountAfter = await popup.$$eval('#shimBody tr', (rows) => rows.length);
+        if (rowCountAfter !== rowCount + 1) {
+          throw new Error(
+            `Shim table pop-out: expected row count to grow by 1 after a live edit, went from ${rowCount} to ${rowCountAfter}`,
+          );
+        }
+        await popup.close();
+      }
+
+      // Re-clicking the same button after its window closed should open a fresh one (proves
+      // the tracked-reference/.focus() path doesn't wedge once the old window is gone).
+      const reopened = await openPopout('#popoutStackBtn');
+      await reopened.close();
+
+      if (errors.length > 0) throw new Error('Pop-out windows console/page errors:\n' + errors.join('\n'));
       await page.close();
     }
 

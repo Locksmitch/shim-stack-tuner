@@ -1,100 +1,196 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Valving Toolbox</title>
-<script>(function(){var t=localStorage.getItem('sst_theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t;})();</script>
-<link rel="stylesheet" href="theme.css">
-<style>
-  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.45; }
-  .hero { padding: 46px 20px 30px; text-align: center; }
-  .hero h1 { margin: 0 0 8px; font-size: 1.9rem; color: var(--ink); }
-  .hero p { margin: 0 auto; max-width: 640px; color: var(--muted); font-size: 0.95rem; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg);
-    padding: 20px; text-decoration: none; color: inherit; display: flex; flex-direction: column;
-    gap: 10px; box-shadow: var(--shadow); transition: transform 0.12s, border-color 0.12s;
-  }
-  .card:hover { transform: translateY(-2px); border-color: var(--accent); }
-  .card-icon { font-size: 1.8rem; line-height: 1; }
-  .card h2 { margin: 0; font-size: 1.05rem; color: var(--ink); }
-  .card p { margin: 0; font-size: 0.85rem; color: var(--muted); flex: 1; }
-  .card .tag { align-self: flex-start; font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--accent); }
-  .card .go { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
-  footer { text-align: center; font-size: 12px; color: var(--muted); padding: 10px 12px 40px; }
-</style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Valving Toolbox</title>
+    <script>
+      (function () {
+        var t = localStorage.getItem('sst_theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family:
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Helvetica,
+          Arial,
+          sans-serif;
+        line-height: 1.45;
+      }
+      .hero {
+        padding: 46px 20px 30px;
+        text-align: center;
+      }
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: 1.9rem;
+        color: var(--ink);
+      }
+      .hero p {
+        margin: 0 auto;
+        max-width: 640px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 20px 60px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 20px;
+        text-decoration: none;
+        color: inherit;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: var(--shadow);
+        transition:
+          transform 0.12s,
+          border-color 0.12s;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        border-color: var(--accent);
+      }
+      .card-icon {
+        font-size: 1.8rem;
+        line-height: 1;
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 1.05rem;
+        color: var(--ink);
+      }
+      .card p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+        flex: 1;
+      }
+      .card .tag {
+        align-self: flex-start;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: var(--chip);
+        color: var(--accent);
+      }
+      .card .go {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      footer {
+        text-align: center;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 10px 12px 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="sitenav">
+      <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
+      <div class="sitenav-links">
+        <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
+        <a href="shim-stack-tuner.html#p-spring-calc">Spring Curve Calculator</a>
+        <a href="shim-stack-tuner.html#p-shim-delta">Shim Delta Tool</a>
+        <a href="shim-stack-tuner.html#p-wheel-force">Wheel Force</a>
+      </div>
+      <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    </nav>
 
-<nav class="sitenav">
-  <a class="sitenav-brand" href="index.html">🛠️ Valving Toolbox</a>
-  <div class="sitenav-links">
-    <a href="shim-stack-tuner.html">Shim Stack Tuner</a>
-    <a href="spring-calculator.html">Spring Curve Calculator</a>
-    <a href="shim-delta.html">Shim Delta Tool</a>
-    <a href="oil-viscosity.html">Oil Viscosity</a>
-    <a href="spring-damper-curve.html">Wheel Force</a>
-  </div>
-  <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
-</nav>
+    <div class="hero">
+      <h1>Valving Toolbox</h1>
+      <p>
+        A small collection of independent, offline calculators for suspension valving and spring setup — shim stacks,
+        spring rates, shim substitutions, and oil viscosity. No install, no accounts, nothing leaves your browser.
+      </p>
+    </div>
 
-<div class="hero">
-  <h1>Valving Toolbox</h1>
-  <p>A small collection of independent, offline calculators for suspension valving and spring setup — shim stacks, spring rates, shim substitutions, and oil viscosity. No install, no accounts, nothing leaves your browser.</p>
-</div>
+    <div class="wrap">
+      <div class="grid">
+        <a class="card" href="shim-stack-tuner.html">
+          <div class="card-icon">🧮</div>
+          <span class="tag">Calculator</span>
+          <h2>Shim Stack Tuner</h2>
+          <p>
+            Model a shim stack's engagement and bending behavior, estimate damping force over a velocity range, and
+            optimize a stack against a target curve using a real shim catalog.
+          </p>
+          <span class="go">Open tool →</span>
+        </a>
 
-<div class="wrap">
-  <div class="grid">
+        <a class="card" href="shim-stack-tuner.html#p-spring-calc">
+          <div class="card-icon">📈</div>
+          <span class="tag">Calculator</span>
+          <h2>Spring Curve Calculator</h2>
+          <p>
+            Now built into the Shim Stack Tuner: compare dual springs-in-series against single springs — spring rate,
+            coil-bind travel, sag and peak force, and a live force-vs-displacement chart with a pop-out view.
+          </p>
+          <span class="go">Open tool →</span>
+        </a>
 
-    <a class="card" href="shim-stack-tuner.html">
-      <div class="card-icon">🧮</div>
-      <span class="tag">Calculator</span>
-      <h2>Shim Stack Tuner</h2>
-      <p>Model a shim stack's engagement and bending behavior, estimate damping force over a velocity range, and optimize a stack against a target curve using a real shim catalog.</p>
-      <span class="go">Open tool →</span>
-    </a>
+        <a class="card" href="shim-stack-tuner.html#p-shim-delta">
+          <div class="card-icon">🔀</div>
+          <span class="tag">Reference</span>
+          <h2>Shim Delta Tool</h2>
+          <p>
+            Now built into the Shim Stack Tuner: pick two stock tunes and see exactly which shims to remove, keep, and
+            add to go from one to the other.
+          </p>
+          <span class="go">Open tool →</span>
+        </a>
 
-    <a class="card" href="spring-calculator.html">
-      <div class="card-icon">📈</div>
-      <span class="tag">Calculator</span>
-      <h2>Spring Curve Calculator</h2>
-      <p>Compare dual springs-in-series against single springs — spring rate, coil-bind travel, sag and peak force, and a live force-vs-displacement chart with a pop-out view.</p>
-      <span class="go">Open tool →</span>
-    </a>
+        <a class="card" href="shim-stack-tuner.html#p-oil">
+          <div class="card-icon">🌡️</div>
+          <span class="tag">Calculator</span>
+          <h2>Oil Viscosity Comparison</h2>
+          <p>
+            Now built into the Shim Stack Tuner: plot two oils' viscosity across a temperature range, compute Viscosity
+            Index, and pick which one actually drives the damping-force calculation.
+          </p>
+          <span class="go">Open tool →</span>
+        </a>
 
-    <a class="card" href="shim-delta.html">
-      <div class="card-icon">🔀</div>
-      <span class="tag">Reference</span>
-      <h2>Shim Delta Tool</h2>
-      <p>Pick two stock tunes and see exactly which shims to remove, keep, and add to go from one to the other.</p>
-      <span class="go">Open tool →</span>
-    </a>
+        <a class="card" href="shim-stack-tuner.html#p-wheel-force">
+          <div class="card-icon">🛞</div>
+          <span class="tag">Calculator</span>
+          <h2>Wheel Force Curve</h2>
+          <p>
+            Now built into the Shim Stack Tuner: plot spring force across your travel range, then see how much extra
+            force the current valve tune adds at a chosen shaft velocity — live-synced with the workspace above it.
+          </p>
+          <span class="go">Open tool →</span>
+        </a>
+      </div>
+    </div>
 
-    <a class="card" href="oil-viscosity.html">
-      <div class="card-icon">🌡️</div>
-      <span class="tag">Calculator</span>
-      <h2>Oil Viscosity Comparison</h2>
-      <p>Plot two oils' viscosity across a temperature range from their cSt@40°C / cSt@100°C ratings, compute Viscosity Index, and read off any temperature.</p>
-      <span class="go">Open tool →</span>
-    </a>
+    <footer>
+      Valving Toolbox — independent, open-source style tools, offline &amp; self-contained. Not affiliated with any
+      commercial suspension-valving software.
+    </footer>
 
-    <a class="card" href="spring-damper-curve.html">
-      <div class="card-icon">🛞</div>
-      <span class="tag">Calculator</span>
-      <h2>Wheel Force Curve</h2>
-      <p>Plot spring force across your travel range, then see how much extra force a compression valve tune adds at a chosen shaft velocity — live-synced from the Shim Stack Tuner tab.</p>
-      <span class="go">Open tool →</span>
-    </a>
-
-  </div>
-</div>
-
-<footer>Valving Toolbox — independent, open-source style tools, offline &amp; self-contained. Not affiliated with any commercial suspension-valving software.</footer>
-
-<script src="theme.js"></script>
-</body>
+    <script src="theme.js"></script>
+  </body>
 </html>

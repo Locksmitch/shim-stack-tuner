@@ -377,11 +377,13 @@ canvas {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-/* The stack preview and damping-force charts draw their own axes/text with colors read
-   from the theme (see themeColor() in canvas-utils.js), so - unlike the other canvases
-   below, which still assume a fixed light background - these two switch with it. */
+/* The stack preview, damping-force, and oil-viscosity charts draw their own axes/text
+   with colors read from the theme (see themeColor() in canvas-utils.js), so - unlike the
+   other canvases below, which still assume a fixed light background - these switch with
+   it. */
 #stackCanvas,
-#forceCanvas {
+#forceCanvas,
+#oilChart {
   background: var(--panel);
 }
 .slider-row {
@@ -432,20 +434,25 @@ footer {
 .units-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 16px;
-  margin-bottom: 16px;
-}
-.units-bar strong {
-  font-size: 13px;
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin: 16px 0;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 .units-bar select {
   width: auto;
-  min-width: 180px;
+  min-width: 130px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+.units-bar .small {
+  padding: 3px 8px;
+  font-size: 11.5px;
 }
 .units-bar .hint {
   margin: 0;
@@ -560,4 +567,1056 @@ footer {
   border-radius: 2px;
   margin-right: 5px;
   vertical-align: middle;
+}
+
+/* ---- Oil viscosity comparison panel (merged from the former oil-viscosity.html) ----
+   Scoped under .oil-compare since a couple of its class/selector names (.field,
+   input[type='number']) would otherwise collide with this file's own generic rules
+   above (different padding/font-size), which style the rest of the Tuner's fields. */
+.oil-compare .oil-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 760px) {
+  .oil-compare .oil-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.oil-compare .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+.oil-compare .oil-active-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.oil-compare .oil-active-toggle input {
+  width: auto;
+}
+.oil-compare .oil-name-input {
+  width: 100%;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+.oil-compare .oil-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.oil-compare .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.oil-compare .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 0;
+}
+.oil-compare .field label {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.oil-compare input[type='number'] {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+.oil-compare input[type='number']:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.oil-compare select.oilPresetSel {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.oil-compare select.oilPresetSel:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.oil-compare .probe-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.oil-compare .probe-out-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.oil-compare .probe-out {
+  background: var(--panel2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  text-align: center;
+}
+.oil-compare .probe-out-label {
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.oil-compare .probe-out-val {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.oil-compare .vi-note {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.oil-compare .chart-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+.oil-compare .chart-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.oil-compare .toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.oil-compare .toggle-row input {
+  width: auto;
+}
+.oil-compare .legend {
+  display: flex;
+  gap: 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.oil-compare .leg-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.oil-compare .leg-line {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+}
+.oil-compare .canvas-wrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+}
+.oil-compare canvas#oilChart {
+  display: block;
+  width: 100%;
+  height: 440px;
+  cursor: crosshair;
+}
+.oil-compare .hover-readout {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 8px;
+  min-height: 16px;
+  text-align: center;
+}
+
+/* ---- Shim Delta Tool (merged from the former shim-delta.html) ----
+   Scoped under #tool-shim-delta - the source page's own .wrap/.field classes had
+   different rules than this file's own same-named ones. */
+#tool-shim-delta .controls {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+#tool-shim-delta .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 140px;
+}
+#tool-shim-delta .field label {
+  font-size: 13px;
+  color: var(--muted);
+}
+#tool-shim-delta select {
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+}
+#tool-shim-delta .arrow {
+  font-size: 22px;
+  color: var(--muted);
+  padding-bottom: 6px;
+  align-self: flex-end;
+}
+#tool-shim-delta .summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 1.5rem;
+}
+#tool-shim-delta .stat {
+  background: var(--panel2);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+#tool-shim-delta .stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+#tool-shim-delta .stat-val {
+  font-size: 22px;
+  font-weight: 500;
+}
+#tool-shim-delta .remove .stat-val {
+  color: var(--warn);
+}
+#tool-shim-delta .keep .stat-val {
+  color: var(--muted);
+}
+#tool-shim-delta .add .stat-val {
+  color: var(--accent2);
+}
+#tool-shim-delta .section {
+  margin-bottom: 1.25rem;
+}
+#tool-shim-delta .section-head {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+#tool-shim-delta .head-remove {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+#tool-shim-delta .head-keep {
+  background: var(--panel2);
+  color: var(--muted);
+}
+#tool-shim-delta .head-add {
+  background: var(--success-bg);
+  color: var(--accent2);
+}
+#tool-shim-delta .shim-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-top: none;
+  font-size: 13px;
+  background: var(--panel);
+}
+#tool-shim-delta .shim-row:last-child {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+#tool-shim-delta .qty {
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+#tool-shim-delta .qty-remove {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+#tool-shim-delta .qty-keep {
+  background: var(--panel2);
+  color: var(--muted);
+}
+#tool-shim-delta .qty-add {
+  background: var(--success-bg);
+  color: var(--accent2);
+}
+#tool-shim-delta .shim-spec {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+#tool-shim-delta .type-tag {
+  font-size: 11px;
+  background: var(--panel2);
+  color: var(--muted2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+#tool-shim-delta .empty {
+  font-size: 13px;
+  color: var(--muted2);
+  padding: 10px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--panel);
+}
+#tool-shim-delta .meta {
+  font-size: 12px;
+  color: var(--muted2);
+  margin-bottom: 1rem;
+}
+
+/* ---- Spring Curve Calculator (merged from the former spring-calculator.html) ----
+   Scoped under #tool-spring-calc - the source page used many generic class names
+   (.card, .row, .legend, .canvas-wrap, bare canvas/input selectors) that would otherwise
+   collide with this file's own rules or other merged tools' rules. ---- */
+/* the source page's own `body{...}` rule (font/background/page-padding) is dropped -
+   redundant once nested inside the site's shared .panel, which already provides those. */
+#tool-spring-calc .page-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+#tool-spring-calc .subtitle {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+/* The source page's own fixed "260px x4 + 1fr" grid assumed a full, unconstrained browser
+   viewport - nested inside the site's ~1136px-wide panel, that squeezed the chart column
+   down to near-nothing. Flexible card columns that wrap, with the chart spanning the full
+   width on its own row below, actually fits the panel width instead. */
+#tool-spring-calc .outer {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+#tool-spring-calc .chart-col {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+#tool-spring-calc .canvas-wrap {
+  min-height: 360px;
+}
+#tool-spring-calc .col-header {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 10px;
+  border-radius: 7px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#tool-spring-calc .col-header-a {
+  background: #1a2540;
+  color: #60a5fa;
+  border: 1px solid #1e3a6e;
+}
+#tool-spring-calc .col-header-b {
+  background: #2a1a20;
+  color: #fb923c;
+  border: 1px solid #6e2a1e;
+}
+#tool-spring-calc .col-header-c {
+  background: #1a2520;
+  color: #2dd4bf;
+  border: 1px solid #1e6e5a;
+}
+#tool-spring-calc .col-header-d {
+  background: #2a1a1a;
+  color: #f87171;
+  border: 1px solid #6e1e1e;
+}
+#tool-spring-calc .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+#tool-spring-calc .card-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+#tool-spring-calc .a1 {
+  color: #60a5fa;
+}
+#tool-spring-calc .a2 {
+  color: #f472b6;
+}
+#tool-spring-calc .ac {
+  color: #3b82f6;
+}
+#tool-spring-calc .b1 {
+  color: #fb923c;
+}
+#tool-spring-calc .b2 {
+  color: #a78bfa;
+}
+#tool-spring-calc .bc {
+  color: #a3e635;
+}
+#tool-spring-calc .cc {
+  color: #2dd4bf;
+}
+#tool-spring-calc .dc {
+  color: #f87171;
+}
+#tool-spring-calc .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+#tool-spring-calc .row label {
+  font-size: 0.71rem;
+  color: var(--muted);
+}
+#tool-spring-calc .row span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+#tool-spring-calc input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+#tool-spring-calc input[type='number'] {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 7px;
+  width: 100%;
+  font-size: 0.8rem;
+  margin-top: 2px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+#tool-spring-calc input[type='number']::-webkit-outer-spin-button,
+#tool-spring-calc input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+#tool-spring-calc input[type='number']:focus {
+  border-color: var(--accent);
+}
+#tool-spring-calc .g3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 5px;
+}
+#tool-spring-calc .g2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+#tool-spring-calc .input-group label {
+  font-size: 0.67rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 1px;
+}
+#tool-spring-calc .input-hint {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 1px;
+}
+#tool-spring-calc .rate-box {
+  background: var(--panel2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#tool-spring-calc .rate-box .rate-label {
+  font-size: 0.67rem;
+  color: var(--muted);
+}
+#tool-spring-calc .rate-box .rate-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+#tool-spring-calc .derived-box {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+#tool-spring-calc .derived-item {
+  text-align: center;
+}
+#tool-spring-calc .derived-label {
+  font-size: 0.58rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+#tool-spring-calc .derived-val {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 1px;
+}
+#tool-spring-calc .series-box {
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+#tool-spring-calc .series-box-a {
+  background: #0d1a2e;
+  border: 1px solid #3b82f6;
+}
+#tool-spring-calc .series-box-b {
+  background: #1a1f0b;
+  border: 1px solid #a3e635;
+}
+#tool-spring-calc .series-box-c {
+  background: #0b2020;
+  border: 1px solid #2dd4bf;
+}
+#tool-spring-calc .series-box-d {
+  background: #200b0b;
+  border: 1px solid #f87171;
+}
+#tool-spring-calc .formula {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  margin-bottom: 3px;
+}
+#tool-spring-calc .kval {
+  font-size: 1rem;
+  font-weight: 700;
+}
+#tool-spring-calc .klabel {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+#tool-spring-calc .stat-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+#tool-spring-calc .stat {
+  background: var(--panel2);
+  border-radius: 6px;
+  padding: 5px 6px;
+  flex: 1;
+  text-align: center;
+}
+#tool-spring-calc .stat-label {
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+#tool-spring-calc .stat-val {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-top: 1px;
+}
+#tool-spring-calc .phase-note {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 6px;
+  padding: 5px 7px;
+  background: var(--panel2);
+  border-radius: 5px;
+  line-height: 1.55;
+}
+#tool-spring-calc .phase-note-a {
+  border-left: 2px solid #3b82f6;
+}
+#tool-spring-calc .phase-note-b {
+  border-left: 2px solid #a3e635;
+}
+#tool-spring-calc .phase-note-c {
+  border-left: 2px solid #2dd4bf;
+}
+#tool-spring-calc .phase-note-d {
+  border-left: 2px solid #f87171;
+}
+#tool-spring-calc .section-label {
+  font-size: 0.62rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+  margin-top: 6px;
+}
+#tool-spring-calc .chart-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+#tool-spring-calc .canvas-wrap {
+  position: relative;
+  border-radius: 10px;
+  background: #1e2130;
+  resize: both;
+  overflow: auto;
+  min-width: 300px;
+  min-height: 260px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #2d3148;
+}
+#tool-spring-calc .canvas-wrap::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #4b5563;
+  border-bottom: 2px solid #4b5563;
+  border-radius: 1px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+#tool-spring-calc canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#tool-spring-calc .chart-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+  gap: 6px;
+}
+#tool-spring-calc .btn-popout {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.68rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+#tool-spring-calc .btn-popout:hover {
+  background: var(--panel2);
+  color: var(--ink);
+}
+#tool-spring-calc .popout-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#tool-spring-calc .popout-overlay.active {
+  display: flex;
+}
+#tool-spring-calc .popout-window {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+  resize: both;
+  overflow: auto;
+  width: 90vw;
+  height: 85vh;
+  min-width: 500px;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+#tool-spring-calc .popout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+#tool-spring-calc .popout-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+#tool-spring-calc .btn-close {
+  background: var(--panel2);
+  border: none;
+  color: var(--muted);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#tool-spring-calc .btn-close:hover {
+  background: #ef4444;
+  color: white;
+}
+#tool-spring-calc #popout-canvas-wrap {
+  flex: 1;
+  border-radius: 8px;
+  background: #1e2130;
+  overflow: hidden;
+  position: relative;
+}
+#tool-spring-calc #popout-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#tool-spring-calc .legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+#tool-spring-calc .leg-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+#tool-spring-calc .leg-line {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+#tool-spring-calc .shared-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+}
+#tool-spring-calc .shared-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+#tool-spring-calc .split-panel {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+#tool-spring-calc .split-title {
+  font-size: 0.62rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+#tool-spring-calc .split-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+#tool-spring-calc .split-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  width: 52px;
+  flex-shrink: 0;
+}
+#tool-spring-calc .split-bar-bg {
+  flex: 1;
+  height: 7px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+#tool-spring-calc .split-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.12s;
+}
+#tool-spring-calc .split-val {
+  font-size: 0.72rem;
+  font-weight: 700;
+  width: 50px;
+  text-align: right;
+  flex-shrink: 0;
+}
+#tool-spring-calc .probe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+#tool-spring-calc .probe-row label {
+  font-size: 0.71rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+#tool-spring-calc .probe-force {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+#tool-spring-calc .warn {
+  font-size: 0.65rem;
+  color: #f59e0b;
+  margin-top: 3px;
+  display: none;
+}
+#tool-spring-calc .formula-note {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 8px;
+  text-align: center;
+}
+#tool-spring-calc .sag-panel {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+#tool-spring-calc .sag-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+#tool-spring-calc .sag-out {
+  background: var(--bg);
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+#tool-spring-calc .sag-out-label {
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+#tool-spring-calc .sag-out-val {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-top: 1px;
+}
+#tool-spring-calc .divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 8px 0;
+}
+#tool-spring-calc .sub-section {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-bottom: 5px;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ---- Wheel Force Curve (merged from the former spring-damper-curve.html) ----
+   Scoped under #tool-wheel-force for the same reasons as the other merged tools. ---- */
+/* the source page's own body/.page-title/.page-sub/.wrap rules are dropped - redundant or
+   meaningless once nested inside the site's shared .panel (which already provides the
+   heading, background, and padding these were doing on a full standalone page). */
+#tool-wheel-force .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+#tool-wheel-force .card h2 {
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+#tool-wheel-force .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+#tool-wheel-force .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#tool-wheel-force .field label {
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#tool-wheel-force select {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+#tool-wheel-force select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+#tool-wheel-force .sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  flex-wrap: wrap;
+}
+#tool-wheel-force .sync-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+#tool-wheel-force .sync-status.ok {
+  color: var(--accent2);
+}
+#tool-wheel-force .sync-status.err {
+  color: var(--warn);
+}
+#tool-wheel-force .btn {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#tool-wheel-force .btn:hover {
+  background: var(--chip);
+}
+#tool-wheel-force .chart-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+#tool-wheel-force .legend {
+  display: flex;
+  gap: 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+#tool-wheel-force .leg-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+#tool-wheel-force .leg-line {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+}
+#tool-wheel-force .leg-item.dimmed {
+  opacity: 0.4;
+}
+#tool-wheel-force .canvas-wrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+}
+#tool-wheel-force canvas#wheelForceChart {
+  display: block;
+  width: 100%;
+  height: 420px;
+}
+#tool-wheel-force .velocity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+#tool-wheel-force .velocity-row label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+#tool-wheel-force input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+#tool-wheel-force input[type='range']:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+#tool-wheel-force .velocity-readout {
+  font-size: 0.78rem;
+  color: var(--ink);
+  margin: 8px 0 0;
+  text-align: center;
+}
+#tool-wheel-force .velocity-readout.disabled {
+  color: var(--muted);
 }

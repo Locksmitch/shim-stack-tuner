@@ -1,0 +1,152 @@
+[
+  {
+    "id": "redline-1wt",
+    "label": "1wt Redline LikeWater",
+    "brand": "Redline",
+    "product": "LikeWater",
+    "weight": "1wt",
+    "cst40": 4.0,
+    "cst100": 2.34,
+    "vi": 800
+  },
+  {
+    "id": "redline-2.5wt",
+    "label": "2.5wt Redline Extralight",
+    "brand": "Redline",
+    "product": "Extralight",
+    "weight": "2.5wt",
+    "cst40": 8.0,
+    "cst100": 4.1,
+    "vi": 600
+  },
+  {
+    "id": "redline-5wt",
+    "label": "5wt Redline LightWeight",
+    "brand": "Redline",
+    "product": "LightWeight",
+    "weight": "5wt",
+    "cst40": 16.0,
+    "cst100": 8.0,
+    "vi": 560
+  },
+  {
+    "id": "redline-10wt",
+    "label": "10wt Redline Medium",
+    "brand": "Redline",
+    "product": "Medium",
+    "weight": "10wt",
+    "cst40": 32.0,
+    "cst100": 17.7,
+    "vi": 550
+  },
+  {
+    "id": "redline-30wt",
+    "label": "30wt Redline Heavy",
+    "brand": "Redline",
+    "product": "Heavy",
+    "weight": "30wt",
+    "cst40": 67.9,
+    "cst100": 22.8,
+    "vi": 358
+  },
+  {
+    "id": "motorex-2.5w",
+    "label": "2.5W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "2.5W",
+    "cst40": 14.5,
+    "cst100": 4.5,
+    "vi": ">250"
+  },
+  {
+    "id": "motorex-4w",
+    "label": "4W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "4W",
+    "cst40": 16.0,
+    "cst100": 5.0,
+    "vi": ">250"
+  },
+  {
+    "id": "motorex-5w",
+    "label": "5W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "5W",
+    "cst40": 22.9,
+    "cst100": 6.8,
+    "vi": ">250"
+  },
+  {
+    "id": "motorex-7.5w",
+    "label": "7.5W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "7.5W",
+    "cst40": 34.7,
+    "cst100": 9.3,
+    "vi": ">250"
+  },
+  {
+    "id": "motorex-10w",
+    "label": "10W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "10W",
+    "cst40": 49.5,
+    "cst100": 12.1,
+    "vi": ">250"
+  },
+  {
+    "id": "motorex-15w",
+    "label": "15W Motorex Racing Fork Oil",
+    "brand": "Motorex",
+    "product": "Racing Fork Oil",
+    "weight": "15W",
+    "cst40": 71.9,
+    "cst100": 16.9,
+    "vi": ">250"
+  },
+  {
+    "id": "maxima-3wt",
+    "label": "3WT Maxima PLUSH",
+    "brand": "Maxima",
+    "product": "PLUSH",
+    "weight": "3WT",
+    "cst40": 14.0,
+    "cst100": 4.2,
+    "vi": 228
+  },
+  {
+    "id": "maxima-5wt",
+    "label": "5WT Maxima PLUSH",
+    "brand": "Maxima",
+    "product": "PLUSH",
+    "weight": "5WT",
+    "cst40": 18.6,
+    "cst100": 5.0,
+    "vi": 223
+  },
+  {
+    "id": "maxima-7wt",
+    "label": "7WT Maxima PLUSH",
+    "brand": "Maxima",
+    "product": "PLUSH",
+    "weight": "7WT",
+    "cst40": 30.4,
+    "cst100": 7.3,
+    "vi": 218
+  },
+  {
+    "id": "maxima-10wt",
+    "label": "10WT Maxima PLUSH",
+    "brand": "Maxima",
+    "product": "PLUSH",
+    "weight": "10WT",
+    "cst40": 46.0,
+    "cst100": 10.2,
+    "vi": 219
+  }
+]
