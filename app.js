@@ -1080,7 +1080,13 @@ function loadValveGeom(v) {
   document.getElementById('nPort').value = g.nPort;
   document.getElementById('nThrt').value = g.nThrt;
   const hint = document.getElementById('geomSaveHint');
-  if (hint) hint.textContent = saved ? 'using your saved geometry' : 'using approximate defaults';
+  if (hint) {
+    hint.textContent = saved
+      ? 'using your saved geometry'
+      : v.geomNote
+        ? `using approximate defaults — ${v.geomNote}`
+        : 'using approximate defaults';
+  }
   drawPortFaceDiagram();
 }
 function saveValveGeom() {

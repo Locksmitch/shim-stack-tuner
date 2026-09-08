@@ -9,6 +9,13 @@
    this module just knows how to fetch it and derive the parts bin from it, so the
    data can later be swapped for a server/database-backed source without any change
    to the code that consumes PRODUCTS/PARTS_BIN.
+   Exception: a valve's shim rows/odMin/odMax/faceOD/shimID are always real, sourced
+   data, but its port `geom` is only real when FOX's own drawings publish it. Where
+   they don't (foxFloatX2025/foxDhx2025 - FOX's parts-drawing pages list shim-stack
+   kits but never piston port dimensions), `geom` is a placeholder scaled from a
+   comparable product already in this file, and the valve carries a `geomNote`
+   explaining that so the UI (see loadValveGeom in app.js) can surface it instead of
+   presenting an estimate as measured fact.
    ========================================================= */
 export const IN = 25.4;
 export const CANON_THK = [0.0031, 0.0045, 0.006, 0.01]; // real FOX catalog thicknesses (in)

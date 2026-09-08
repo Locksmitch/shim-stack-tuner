@@ -327,5 +327,615 @@
         }
       }
     }
+  },
+  "foxFloatX2025": {
+    "label": "2025 FOX Float X (shares tune kits with DHX)",
+    "note": "DHX and Float X (2022+) share the same twin-tube damper cartridge, so every tune kit below is identical between the two shocks - only the shock body/spring differs.",
+    "valves": {
+      "rebound": {
+        "label": "Rebound",
+        "valveType": "mainRebound",
+        "shimID": 0.377,
+        "odMin": 0.4724409449,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.377,
+          "clampDia_in": 0.377,
+          "dRod": 10,
+          "dValve": 20,
+          "rPort": 5.2,
+          "dPort": 3.4,
+          "wPort": 3.8,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "rl20": {
+            "kit": "805-05-720-KIT",
+            "label": "RL20",
+            "heightIn": 0.071,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl30": {
+            "kit": "805-05-721-KIT",
+            "label": "RL30",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl40": {
+            "kit": "805-05-722-KIT",
+            "label": "RL40",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.53, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl50": {
+            "kit": "805-05-723-KIT",
+            "label": "RL50",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.55, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl60": {
+            "kit": "805-05-724-KIT",
+            "label": "RL60",
+            "heightIn": 0.084,
+            "rows": [
+              [2, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.55, 0.008],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.8, 0.0045]
+            ]
+          }
+        }
+      },
+      "dynamic": {
+        "label": "Compression — Dynamic",
+        "valveType": "mainComp",
+        "shimID": 0.377,
+        "odMin": 0.4724409449,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.377,
+          "clampDia_in": 0.377,
+          "dRod": 10,
+          "dValve": 20,
+          "rPort": 5.2,
+          "dPort": 3.4,
+          "wPort": 3.8,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "cs10": {
+            "kit": "805-05-710-KIT",
+            "label": "CS10",
+            "heightIn": 0.063,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.0045],
+              [1, 0.8, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs30": {
+            "kit": "805-05-712-KIT",
+            "label": "CS30",
+            "heightIn": 0.061,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs50": {
+            "kit": "805-05-714-KIT",
+            "label": "CS50",
+            "heightIn": 0.065,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.53, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs70": {
+            "kit": "805-05-716-KIT",
+            "label": "CS70",
+            "heightIn": 0.072,
+            "rows": [
+              [3, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.008],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs90": {
+            "kit": "805-05-718-KIT",
+            "label": "CS90",
+            "heightIn": 0.072,
+            "rows": [
+              [3, 0.9, 0.006],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.49, 0.008],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          }
+        }
+      },
+      "base": {
+        "label": "Compression — Base",
+        "valveType": "base",
+        "shimID": 0.252,
+        "odMin": 0.35,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.252,
+          "clampDia_in": 0.252,
+          "dRod": 10,
+          "dValve": 18,
+          "rPort": 4.2,
+          "dPort": 2.8,
+          "wPort": 3.2,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "b20": {
+            "kit": "805-05-238-KIT",
+            "label": "B20",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.4, 0.0045],
+              [1, 0.5, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.8, 0.0045],
+              [1, 0.9, 0.006]
+            ]
+          },
+          "b40": {
+            "kit": "805-05-239-KIT",
+            "label": "B40",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.4, 0.0045],
+              [1, 0.5, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.8, 0.0045],
+              [2, 0.9, 0.006]
+            ]
+          },
+          "b60": {
+            "kit": "805-05-240-KIT",
+            "label": "B60",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.01],
+              [1, 0.5, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.8, 0.0045],
+              [2, 0.9, 0.006]
+            ]
+          },
+          "b80": {
+            "kit": "805-05-241-KIT",
+            "label": "B80",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.02],
+              [1, 0.5, 0.008],
+              [1, 0.6, 0.008],
+              [1, 0.7, 0.008],
+              [1, 0.8, 0.008],
+              [1, 0.8, 0.006],
+              [1, 0.9, 0.008]
+            ]
+          },
+          "b100": {
+            "kit": "805-05-242-KIT",
+            "label": "B100",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.02],
+              [1, 0.5, 0.008],
+              [1, 0.6, 0.008],
+              [1, 0.7, 0.008],
+              [1, 0.8, 0.008],
+              [1, 0.9, 0.008]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "foxDhx2025": {
+    "label": "2025 FOX DHX (shares tune kits with Float X)",
+    "note": "DHX and Float X (2022+) share the same twin-tube damper cartridge, so every tune kit below is identical between the two shocks - only the shock body/spring differs.",
+    "valves": {
+      "rebound": {
+        "label": "Rebound",
+        "valveType": "mainRebound",
+        "shimID": 0.377,
+        "odMin": 0.4724409449,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.377,
+          "clampDia_in": 0.377,
+          "dRod": 10,
+          "dValve": 20,
+          "rPort": 5.2,
+          "dPort": 3.4,
+          "wPort": 3.8,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "rl20": {
+            "kit": "805-05-720-KIT",
+            "label": "RL20",
+            "heightIn": 0.071,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl30": {
+            "kit": "805-05-721-KIT",
+            "label": "RL30",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl40": {
+            "kit": "805-05-722-KIT",
+            "label": "RL40",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.53, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl50": {
+            "kit": "805-05-723-KIT",
+            "label": "RL50",
+            "heightIn": 0.074,
+            "rows": [
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.55, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079],
+              [1, 0.8, 0.0045]
+            ]
+          },
+          "rl60": {
+            "kit": "805-05-724-KIT",
+            "label": "RL60",
+            "heightIn": 0.084,
+            "rows": [
+              [2, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.55, 0.008],
+              [2, 0.4724409449, 0.0039370079],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.8, 0.0045]
+            ]
+          }
+        }
+      },
+      "dynamic": {
+        "label": "Compression — Dynamic",
+        "valveType": "mainComp",
+        "shimID": 0.377,
+        "odMin": 0.4724409449,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.377,
+          "clampDia_in": 0.377,
+          "dRod": 10,
+          "dValve": 20,
+          "rPort": 5.2,
+          "dPort": 3.4,
+          "wPort": 3.8,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "cs10": {
+            "kit": "805-05-710-KIT",
+            "label": "CS10",
+            "heightIn": 0.063,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.0045],
+              [1, 0.8, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs30": {
+            "kit": "805-05-712-KIT",
+            "label": "CS30",
+            "heightIn": 0.061,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs50": {
+            "kit": "805-05-714-KIT",
+            "label": "CS50",
+            "heightIn": 0.065,
+            "rows": [
+              [1, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.53, 0.01],
+              [1, 0.4724409449, 0.0098425197],
+              [1, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs70": {
+            "kit": "805-05-716-KIT",
+            "label": "CS70",
+            "heightIn": 0.072,
+            "rows": [
+              [3, 0.9, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.51, 0.008],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          },
+          "cs90": {
+            "kit": "805-05-718-KIT",
+            "label": "CS90",
+            "heightIn": 0.072,
+            "rows": [
+              [3, 0.9, 0.006],
+              [1, 0.6, 0.0045],
+              [1, 0.9, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.49, 0.008],
+              [1, 0.4724409449, 0.0098425197],
+              [2, 0.4724409449, 0.0039370079]
+            ]
+          }
+        }
+      },
+      "base": {
+        "label": "Compression — Base",
+        "valveType": "base",
+        "shimID": 0.252,
+        "odMin": 0.35,
+        "odMax": 0.9,
+        "faceOD": 0.9,
+        "heightTolIn": 0.0019685039370078744,
+        "geom": {
+          "stackID_in": 0.252,
+          "clampDia_in": 0.252,
+          "dRod": 10,
+          "dValve": 18,
+          "rPort": 4.2,
+          "dPort": 2.8,
+          "wPort": 3.2,
+          "nPort": 4,
+          "dThrt": 0,
+          "nThrt": 0
+        },
+        "geomNote": "FOX doesn't publish port geometry (rod/valve/port dimensions) for this kit - the values above are a placeholder scaled from a comparable coil rear shock, not measured from a real Float X/DHX piston. Enter your own measured dimensions (or use the Photo Measure tool) and press \"Save this valve's geometry\" to override.",
+        "tunes": {
+          "b20": {
+            "kit": "805-05-238-KIT",
+            "label": "B20",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.4, 0.0045],
+              [1, 0.5, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.8, 0.0045],
+              [1, 0.9, 0.006]
+            ]
+          },
+          "b40": {
+            "kit": "805-05-239-KIT",
+            "label": "B40",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.4, 0.0045],
+              [1, 0.5, 0.0045],
+              [1, 0.6, 0.0045],
+              [1, 0.7, 0.0045],
+              [1, 0.8, 0.0045],
+              [2, 0.9, 0.006]
+            ]
+          },
+          "b60": {
+            "kit": "805-05-240-KIT",
+            "label": "B60",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.01],
+              [1, 0.5, 0.006],
+              [1, 0.6, 0.006],
+              [1, 0.7, 0.006],
+              [1, 0.8, 0.006],
+              [1, 0.8, 0.0045],
+              [2, 0.9, 0.006]
+            ]
+          },
+          "b80": {
+            "kit": "805-05-241-KIT",
+            "label": "B80",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.02],
+              [1, 0.5, 0.008],
+              [1, 0.6, 0.008],
+              [1, 0.7, 0.008],
+              [1, 0.8, 0.008],
+              [1, 0.8, 0.006],
+              [1, 0.9, 0.008]
+            ]
+          },
+          "b100": {
+            "kit": "805-05-242-KIT",
+            "label": "B100",
+            "rows": [
+              [1, 0.35, 0.01],
+              [1, 0.35, 0.02],
+              [1, 0.45, 0.02],
+              [1, 0.5, 0.008],
+              [1, 0.6, 0.008],
+              [1, 0.7, 0.008],
+              [1, 0.8, 0.008],
+              [1, 0.9, 0.008]
+            ]
+          }
+        }
+      }
+    }
   }
 }

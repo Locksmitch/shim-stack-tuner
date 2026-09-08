@@ -1557,6 +1557,11 @@
                   Select two stock tunes and see exactly which shims to remove, keep, and add to go from one to the
                   other.
                 </p>
+                <p>
+                  Covers FOX Float X and DHX rear shocks (2022–2025). Both share the same twin-tube damper
+                  cartridge, so every tune kit below is identical between the two — the shock selector just labels
+                  the panel.
+                </p>
               </div>
             </details>
             <span class="panel-actions"
@@ -1565,6 +1570,17 @@
             >
           </h2>
           <div id="tool-shim-delta">
+            <div class="controls">
+              <div class="field">
+                <label>Shock</label>
+                <select id="shockModel">
+                  <option value="floatx">FOX Float X</option>
+                  <option value="dhx">FOX DHX</option>
+                </select>
+              </div>
+            </div>
+            <p class="shock-note" id="shockNote"></p>
+
             <div class="controls">
               <div class="field">
                 <label>Tune you have</label>
@@ -1678,6 +1694,7 @@
       const TUNES = {
         RL20: {
           type: 'Rebound Linear',
+          year: 2025,
           dwg: '805-05-720-KIT',
           thick: '.067-.075" / 1.71-1.91mm',
           shims: [
@@ -1695,6 +1712,7 @@
         },
         RL30: {
           type: 'Rebound Linear',
+          year: 2025,
           dwg: '805-05-721-KIT',
           thick: '.070-.078" / 1.79-1.98mm',
           shims: [
@@ -1711,6 +1729,7 @@
         },
         RL40: {
           type: 'Rebound Linear',
+          year: 2025,
           dwg: '805-05-722-KIT',
           thick: '.070-.078" / 1.79-1.98mm',
           shims: [
@@ -1726,6 +1745,7 @@
         },
         RL50: {
           type: 'Rebound Linear',
+          year: 2025,
           dwg: '805-05-723-KIT',
           thick: '.070-.078" / 1.79-1.98mm',
           shims: [
@@ -1741,6 +1761,7 @@
         },
         RL60: {
           type: 'Rebound Linear',
+          year: 2025,
           dwg: '805-05-724-KIT',
           thick: '.080-.088" / 2.04-2.24mm',
           shims: [
@@ -1756,8 +1777,25 @@
             '.800 OD × .377 ID × .0045 TH',
           ],
         },
+        PRM: {
+          type: 'Rebound — Preload Rebound Medium',
+          year: 2022,
+          dwg: '805-05-509-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        RM003: {
+          type: 'Rebound — Medium',
+          year: 2023,
+          dwg: '805-05-656-KIT',
+          thick: '.061 NMT',
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the kit number and NMT thickness spec are listed on the drawing index.',
+        },
         CS10: {
           type: 'Compression Split',
+          year: 2025,
           dwg: '805-05-710-KIT',
           thick: '.060-.066" / 1.52-1.66mm',
           shims: [
@@ -1774,6 +1812,7 @@
         },
         CS30: {
           type: 'Compression Split',
+          year: 2025,
           dwg: '805-05-712-KIT',
           thick: '.058-.064" / 1.47-1.61mm',
           shims: [
@@ -1791,6 +1830,7 @@
         },
         CS50: {
           type: 'Compression Split',
+          year: 2025,
           dwg: '805-05-714-KIT',
           thick: '.062-.068" / 1.59-1.73mm',
           shims: [
@@ -1807,6 +1847,7 @@
         },
         CS70: {
           type: 'Compression Split',
+          year: 2025,
           dwg: '805-05-716-KIT',
           thick: '.069-.075" / 1.76-1.91mm',
           shims: [
@@ -1826,6 +1867,7 @@
         },
         CS90: {
           type: 'Compression Split',
+          year: 2025,
           dwg: '805-05-718-KIT',
           thick: '.069-.075" / 1.76-1.91mm',
           shims: [
@@ -1843,8 +1885,49 @@
             'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
           ],
         },
+        CL: {
+          type: 'Compression — Light',
+          year: 2022,
+          dwg: '805-05-510-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        CM: {
+          type: 'Compression — Medium',
+          year: 2022,
+          dwg: '805-05-511-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        'CM+': {
+          type: 'Compression — Medium+',
+          year: 2022,
+          dwg: '805-05-512-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        'CL+': {
+          type: 'Compression — Light+',
+          year: 2022,
+          dwg: '805-05-545-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        CMFP001: {
+          type: 'Compression — Medium, Flat Piston',
+          year: 2024,
+          dwg: '805-05-665-KIT',
+          thick: '.059 NMT',
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the kit number and NMT thickness spec are listed on the drawing index.',
+        },
         B20: {
           type: 'Base Valve',
+          year: 2025,
           dwg: '805-05-238-KIT',
           thick: 'Inst: .021-.024" | Free: .025-.027"',
           shims: [
@@ -1861,6 +1944,7 @@
         },
         B40: {
           type: 'Base Valve',
+          year: 2025,
           dwg: '805-05-239-KIT',
           thick: 'Inst: .033-.036" | Free: .036-.040"',
           shims: [
@@ -1878,6 +1962,7 @@
         },
         B60: {
           type: 'Base Valve',
+          year: 2025,
           dwg: '805-05-240-KIT',
           thick: 'Inst: .027-.030" | Free: .031-.033"',
           shims: [
@@ -1896,6 +1981,7 @@
         },
         B80: {
           type: 'Base Valve',
+          year: 2025,
           dwg: '805-05-241-KIT',
           thick: 'Inst: .021-.023" | Free: .023-.025"',
           shims: [
@@ -1913,6 +1999,7 @@
         },
         B100: {
           type: 'Base Valve',
+          year: 2025,
           dwg: '805-05-242-KIT',
           thick: 'Inst: .023-.025" | Free: .025-.027"',
           shims: [
@@ -1926,6 +2013,46 @@
             '.800 OD × .252 ID × .008 TH',
             '.900 OD × .252 ID × .008 TH',
           ],
+        },
+        LMB2: {
+          type: 'Base Valve — Lever Mode Medium, Bleed 2',
+          year: 2022,
+          dwg: '805-05-215-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        BVMFP01LM: {
+          type: 'Base Valve — Medium, Lever Mode Medium',
+          year: 2024,
+          dwg: '805-05-226-KIT',
+          thick: null,
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+        },
+        LML: {
+          type: 'Base Valve — Lever Mode, Flat Piston',
+          year: 2025,
+          dwg: '805-05-235-KIT',
+          thick: 'Flat Piston',
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
+        },
+        LMM: {
+          type: 'Base Valve — Lever Mode, Flat Piston',
+          year: 2025,
+          dwg: '805-05-236-KIT',
+          thick: 'Flat Piston',
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
+        },
+        LMF: {
+          type: 'Base Valve — Lever Mode, Flat Piston',
+          year: 2025,
+          dwg: '805-05-237-KIT',
+          thick: 'Flat Piston',
+          shims: null,
+          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
         },
       };
 
@@ -1967,6 +2094,14 @@
           .join('');
       }
 
+      // Kit numbers/tune codes are identical between DHX and Float X (2022+ share the same
+      // twin-tube damper cartridge - FOX's own drawing index lists every kit as "FLOAT X &
+      // DHX"), so the shock selector only relabels the panel; it never filters TUNES.
+      const SHOCKS = {
+        floatx: { label: 'FOX Float X' },
+        dhx: { label: 'FOX DHX' },
+      };
+
       function render() {
         const fromKey = document.getElementById('fromTune').value;
         const toKey = document.getElementById('toTune').value;
@@ -1979,13 +2114,30 @@
           return;
         }
 
+        const metaLine = `
+    <div class="meta">
+      <strong>${fromKey}</strong> (${fromT.dwg}) → <strong>${toKey}</strong> (${toT.dwg}) &nbsp;·&nbsp;
+      Stack: ${fromT.thick || '—'} → ${toT.thick || '—'}
+    </div>`;
+
+        const missing = [fromKey, toKey].filter((k) => !Array.isArray(TUNES[k].shims));
+        if (missing.length) {
+          document.getElementById('output').innerHTML = `
+    ${metaLine}
+    <p class="no-shim-data">
+      FOX hasn't published an individual shim-by-shim breakdown for
+      ${missing.map((k) => `<strong>${k}</strong>`).join(' or ')} — only the kit number${
+        missing.length > 1 ? 's' : ''
+      } and thickness spec above are listed on the drawing index, so a shim-level delta isn't possible for this
+      pair. Order the kit directly, or compare stack heights/NMT specs by hand.
+    </p>`;
+          return;
+        }
+
         const { remove, keep, add } = calcDelta(fromKey, toKey);
 
         document.getElementById('output').innerHTML = `
-    <div class="meta">
-      <strong>${fromKey}</strong> (${fromT.dwg}) → <strong>${toKey}</strong> (${toT.dwg}) &nbsp;·&nbsp;
-      Stack: ${fromT.thick} → ${toT.thick}
-    </div>
+    ${metaLine}
 
     <div class="summary-grid">
       <div class="stat remove">
@@ -2022,23 +2174,42 @@
       const tuneKeys = Object.keys(TUNES);
       const fromSel = document.getElementById('fromTune');
       const toSel = document.getElementById('toTune');
+      const shockSel = document.getElementById('shockModel');
+      const shockNote = document.getElementById('shockNote');
 
-      tuneKeys.forEach((k) => {
-        const o1 = document.createElement('option');
-        o1.value = k;
-        o1.textContent = `${k} — ${TUNES[k].type}`;
-        const o2 = document.createElement('option');
-        o2.value = k;
-        o2.textContent = `${k} — ${TUNES[k].type}`;
-        fromSel.appendChild(o1);
-        toSel.appendChild(o2);
-      });
+      // Group tune options by model year (ascending) via <optgroup> - within a year, tunes stay
+      // in TUNES' own insertion order (Rebound, then Compression, then Base/Lever Mode).
+      const years = [...new Set(tuneKeys.map((k) => TUNES[k].year))].sort((a, b) => a - b);
+      function buildTuneOptions(selectEl) {
+        years.forEach((yr) => {
+          const group = document.createElement('optgroup');
+          group.label = String(yr);
+          tuneKeys
+            .filter((k) => TUNES[k].year === yr)
+            .forEach((k) => {
+              const opt = document.createElement('option');
+              opt.value = k;
+              opt.textContent = `${k} — ${TUNES[k].type}`;
+              group.appendChild(opt);
+            });
+          selectEl.appendChild(group);
+        });
+      }
+      buildTuneOptions(fromSel);
+      buildTuneOptions(toSel);
 
       fromSel.value = 'RL50';
       toSel.value = 'RL40';
 
+      function renderShockNote() {
+        const label = SHOCKS[shockSel.value].label;
+        shockNote.textContent = `${label} (2022–2025) shares its twin-tube damper cartridge with its sibling shock, so every tune kit below - part numbers and shim specs alike - is identical between DHX and Float X.`;
+      }
+
       fromSel.addEventListener('change', render);
       toSel.addEventListener('change', render);
+      shockSel.addEventListener('change', renderShockNote);
+      renderShockNote();
       render();
     </script>
     <script type="module">
