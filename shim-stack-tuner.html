@@ -693,42 +693,61 @@
           </div>
 
           <details class="diagram-box">
-            <summary>📷 Estimate r.port / d.port / w.port from a photo</summary>
+            <summary>📷 Measure the port geometry from a photo</summary>
             <details class="hint-details">
               <summary class="hint-bubble" aria-label="How to use the photo tool">?</summary>
               <div class="hint-popover">
                 <p>
-                  Upload a straight-on photo of the valve face. Click
-                  <b>3 points anywhere along the valve's outer edge</b> to set the scale from your D.valve value above —
-                  any 3 points on the rim will do, no need to find the center or opposite points. Then click all the way
-                  around <b>one port's actual boundary</b> — as many points as you like, rounded/kidney/D-shaped ports
-                  are fine — and press "Finish this port". Trace a couple more ports for a more reliable average, or
-                  just note how many more you can see. Each click snaps to the nearest sharp edge in the photo
-                  automatically. Works best on a reasonably straight-on shot; a steep angle will skew the numbers.
+                  Enter <b>D.valve</b> (the piston outer diameter) above — that is the only measurement you type. Upload
+                  a straight-on photo of one piston face; the tool finds the outer edge (for scale), the rod bore, and
+                  the through-hole ports, grouped into rings. Set each group to <b>compression</b>, <b>rebound</b>,
+                  <b>throat</b> or <b>ignore</b>, then "Apply" writes r.port / d.port / w.port / N.port / D.rod / d.thrt
+                  / N.thrt and the valve type. Flip the piston and add a <b>back photo</b> to average both faces. If
+                  auto-detection struggles, switch on <b>Manual trace mode</b> to click the edge and trace each port by
+                  hand. Works best straight-on — a steep angle skews the numbers.
                 </p>
               </div>
             </details>
-            <input type="file" id="photoFile" accept="image/*" />
-            <label class="live-toggle" style="margin-top: 6px"
-              ><input type="checkbox" id="photoSnapToggle" checked /> 🧲 Snap clicks to the nearest edge</label
-            >
+            <div style="margin-top: 4px">
+              <div class="field">
+                <label>Front photo</label>
+                <input type="file" id="photoFileFront" accept="image/*" data-slot="0" />
+              </div>
+              <div class="field">
+                <label>Back photo (optional)</label>
+                <input type="file" id="photoFileBack" accept="image/*" data-slot="1" />
+              </div>
+            </div>
+            <div class="btnrow" id="photoTabs" style="margin-top: 6px; display: none">
+              <button class="small" id="photoTabFront" type="button" data-idx="0">Front</button>
+              <button class="small" id="photoTabBack" type="button" data-idx="1">Back</button>
+            </div>
             <canvas id="photoCanvas" style="height: 360px; cursor: crosshair; display: none"></canvas>
-            <p class="hint" id="photoStepHint" style="margin-top: 6px">Choose a photo to begin.</p>
-            <div class="btnrow" style="margin-top: 6px">
-              <button class="small" id="photoUndoBtn" type="button" disabled>Undo last point</button>
-              <button class="small" id="photoFinishPortBtn" type="button" disabled>Finish this port ✓</button>
+            <p class="hint" id="photoWarnings" style="margin-top: 6px; color: var(--warn); display: none"></p>
+            <p class="hint" id="photoStepHint" style="margin-top: 6px">
+              Enter D.valve above, then choose a front photo.
+            </p>
+            <div id="photoGroups" style="margin-top: 6px"></div>
+            <p class="hint" id="photoSummary" style="white-space: pre-line; display: none"></p>
+            <div class="btnrow" id="photoModeRow" style="margin-top: 6px; align-items: center; display: none">
+              <label class="live-toggle"><input type="checkbox" id="photoModeToggle" /> ✍️ Manual trace mode</label>
+              <label class="live-toggle"
+                ><input type="checkbox" id="photoSnapToggle" checked /> 🧲 Snap clicks to the nearest edge</label
+              >
+              <button class="small" id="photoAdjustBtn" type="button" style="display: none">Adjust circle</button>
+              <button class="small" id="photoUndoBtn" type="button" style="display: none" disabled>Undo</button>
+              <button class="small" id="photoFinishPortBtn" type="button" style="display: none" disabled>
+                Finish this port ✓
+              </button>
               <button class="small danger" id="photoResetBtn" type="button" disabled>Start over</button>
             </div>
-            <p class="hint" id="photoPortsHint"></p>
-            <div class="field" style="max-width: 280px; margin-top: 6px">
-              <label>Other ports visible but not traced (assumed identical)</label>
-              <input type="number" id="photoOtherPorts" value="0" min="0" step="1" />
-            </div>
-            <div class="btnrow" style="margin-top: 6px; align-items: center">
-              <button class="small primary" id="photoApplyBtn" type="button" disabled>
-                Apply to r.port / d.port / w.port
-              </button>
-              <label class="live-toggle"><input type="checkbox" id="photoApplyNPort" checked /> also set N.port</label>
+            <div class="btnrow" id="photoApplyRow" style="margin-top: 6px; align-items: center; display: none">
+              <button class="small primary" id="photoApplyBtn" type="button" disabled>Apply</button>
+              <select id="photoApplySetSel" class="small" style="width: auto">
+                <option value="compression">Compression set</option>
+                <option value="rebound">Rebound set</option>
+              </select>
+              <span class="hint" style="margin: 0">→ port fields + D.rod + throat + valve type</span>
             </div>
           </details>
 
@@ -1558,9 +1577,8 @@
                   other.
                 </p>
                 <p>
-                  Covers FOX Float X and DHX rear shocks (2022–2025). Both share the same twin-tube damper
-                  cartridge, so every tune kit below is identical between the two — the shock selector just labels
-                  the panel.
+                  Covers FOX Float X and DHX rear shocks (2022–2025). Both share the same twin-tube damper cartridge, so
+                  every tune kit below is identical between the two — the shock selector just labels the panel.
                 </p>
               </div>
             </details>
@@ -1781,17 +1799,35 @@
           type: 'Rebound — Preload Rebound Medium',
           year: 2022,
           dwg: '805-05-509-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: '.076-.080" / 1.93-2.03mm',
+          shims: [
+            '.900 OD × .377 ID × .008 TH',
+            'Ring Shim .900 OD × .810 ID × .010 TH',
+            '.900 OD × .377 ID × .008 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.515 OD × .377 ID × .025 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
         },
         RM003: {
           type: 'Rebound — Medium',
           year: 2023,
           dwg: '805-05-656-KIT',
-          thick: '.061 NMT',
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the kit number and NMT thickness spec are listed on the drawing index.',
+          thick: '.070-.078" / 1.79-1.98mm (.061 NMT)',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .006 TH',
+            '.530 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            '.800 OD × .377 ID × .0045 TH',
+          ],
         },
         CS10: {
           type: 'Compression Split',
@@ -1889,41 +1925,88 @@
           type: 'Compression — Light',
           year: 2022,
           dwg: '805-05-510-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: '.067-.073" / 1.71-1.86mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.800 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+          ],
         },
         CM: {
           type: 'Compression — Medium',
           year: 2022,
           dwg: '805-05-511-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: '.072-.078" / 1.83-1.97mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+          ],
         },
         'CM+': {
           type: 'Compression — Medium+',
           year: 2022,
           dwg: '805-05-512-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: '.068-.074" / 1.73-1.87mm',
+          shims: [
+            '.900 OD × .377 ID × .006 TH',
+            '.800 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.700 OD × .377 ID × .006 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+          ],
+          note: 'Shim list read from the FOX assembly drawing (exploded isometric view) — the extra .700 support shim over CM is the “+”. Cross-check the linked drawing before ordering shims.',
         },
         'CL+': {
           type: 'Compression — Light+',
           year: 2022,
           dwg: '805-05-545-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: '.065-.071" / 1.66-1.81mm',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.800 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+          ],
+          note: 'Shim list read from the FOX assembly drawing (exploded isometric view). Cross-check the linked drawing before ordering shims.',
         },
         CMFP001: {
           type: 'Compression — Medium, Flat Piston',
           year: 2024,
           dwg: '805-05-665-KIT',
-          thick: '.059 NMT',
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the kit number and NMT thickness spec are listed on the drawing index.',
+          thick: '.070-.076" / 1.78-1.92mm (.059 NMT)',
+          shims: [
+            '.900 OD × .377 ID × .0045 TH',
+            '.800 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.800 OD × .377 ID × .0045 TH',
+            '.700 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.600 OD × .377 ID × .0045 TH',
+            '.510 OD × .377 ID × .010 TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.25mm TH',
+            'Metric 12.0mm OD × 9.58mm ID × 0.10mm TH',
+          ],
+          note: 'Two-stage flat-piston stack read from the FOX assembly drawing (exploded isometric view); the mid-taper shim counts are approximate. Cross-check the linked drawing before ordering shims.',
         },
         B20: {
           type: 'Base Valve',
@@ -2018,43 +2101,100 @@
           type: 'Base Valve — Lever Mode Medium, Bleed 2',
           year: 2022,
           dwg: '805-05-215-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: 'Bleed 2 · ~.100" stack',
+          shims: [
+            '.350 OD × .252 ID × .020 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.700 OD × .252 ID × .010 TH',
+            '.800 OD × .252 ID × .010 TH',
+            '.900 OD × .252 ID × .010 TH',
+            'Bleed .070 Slot .900 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .008 TH',
+          ],
+          note: 'Lever-mode + bleed stack read from the FOX assembly drawing (exploded isometric view); the run of six .350 × .0045 clamp shims is an approximate count and the .070 bleed slot is not modelled. Cross-check the linked drawing before ordering shims.',
         },
         BVMFP01LM: {
           type: 'Base Valve — Medium, Lever Mode Medium',
           year: 2024,
           dwg: '805-05-226-KIT',
-          thick: null,
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — only the part number is listed on the drawing index.',
+          thick: 'LM Medium · ~.096" stack',
+          shims: [
+            '.350 OD × .252 ID × .020 TH',
+            '.350 OD × .252 ID × .020 TH',
+            '.600 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .010 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.400 OD × .252 ID × .0045 TH',
+            '.500 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .0045 TH',
+            '.700 OD × .252 ID × .0045 TH',
+            'Ring Shim .900 OD × .810 ID × .008 TH',
+            '.800 OD × .252 ID × .0045 TH',
+            '.900 OD × .252 ID × .006 TH',
+            '.900 OD × .252 ID × .006 TH',
+            '.800 OD × .252 ID × .0045 TH',
+          ],
+          note: 'Combined lever-mode preload + base-valve compression stack read from the FOX assembly drawing (exploded isometric view); the group boundary and a few counts are approximate. Cross-check the linked drawing before ordering shims.',
         },
         LML: {
           type: 'Base Valve — Lever Mode, Flat Piston',
           year: 2025,
           dwg: '805-05-235-KIT',
-          thick: 'Flat Piston',
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
+          thick: 'Flat Piston · .030-.033"',
+          shims: [
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.600 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .010 TH',
+          ],
         },
         LMM: {
           type: 'Base Valve — Lever Mode, Flat Piston',
           year: 2025,
           dwg: '805-05-236-KIT',
-          thick: 'Flat Piston',
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
+          thick: 'Flat Piston · .032-.034"',
+          shims: [
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.600 OD × .252 ID × .006 TH',
+            '.350 OD × .252 ID × .010 TH',
+          ],
         },
         LMF: {
           type: 'Base Valve — Lever Mode, Flat Piston',
           year: 2025,
           dwg: '805-05-237-KIT',
-          thick: 'Flat Piston',
-          shims: null,
-          note: 'FOX has not published an individual shim breakdown for this kit — it is a flat-piston base valve with no NMT spec listed.',
+          thick: 'Flat Piston · .034-.036"',
+          shims: [
+            '.350 OD × .252 ID × .0045 TH',
+            '.350 OD × .252 ID × .0045 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.600 OD × .252 ID × .008 TH',
+            '.350 OD × .252 ID × .010 TH',
+          ],
         },
       };
+
+      // FOX publishes a dimensioned assembly drawing (PDF) for every kit above; this builds
+      // the direct link. 2022 kits live under one help-page asset dir, 2023+ under another -
+      // that's the only thing that varies, so it's derived from the tune's `year` rather than
+      // stored per-entry.
+      const foxDwgUrl = (kit, year) =>
+        `https://tech.ridefox.com/img/help/page${year <= 2022 ? '2871-EGZW' : '2958-IVPT'}/${kit}.pdf`;
+      const dwgLink = (t) =>
+        `<a href="${foxDwgUrl(t.dwg, t.year)}" target="_blank" rel="noopener noreferrer">${t.dwg}</a>`;
 
       function countShims(arr) {
         const map = {};
@@ -2116,20 +2256,25 @@
 
         const metaLine = `
     <div class="meta">
-      <strong>${fromKey}</strong> (${fromT.dwg}) → <strong>${toKey}</strong> (${toT.dwg}) &nbsp;·&nbsp;
+      <strong>${fromKey}</strong> (${dwgLink(fromT)}) → <strong>${toKey}</strong> (${dwgLink(toT)}) &nbsp;·&nbsp;
       Stack: ${fromT.thick || '—'} → ${toT.thick || '—'}
     </div>`;
+
+        // Both tunes' shim lists are transcribed from FOX's own assembly drawings (linked
+        // above). A handful carry a `note` flagging where a count is approximate - surface it.
+        const notes = [...new Set([fromT.note, toT.note].filter(Boolean))];
+        const noteLine = notes.length
+          ? `<p class="delta-note">${notes.map((n) => `Note: ${n}`).join('<br />')}</p>`
+          : '';
 
         const missing = [fromKey, toKey].filter((k) => !Array.isArray(TUNES[k].shims));
         if (missing.length) {
           document.getElementById('output').innerHTML = `
     ${metaLine}
     <p class="no-shim-data">
-      FOX hasn't published an individual shim-by-shim breakdown for
-      ${missing.map((k) => `<strong>${k}</strong>`).join(' or ')} — only the kit number${
-        missing.length > 1 ? 's' : ''
-      } and thickness spec above are listed on the drawing index, so a shim-level delta isn't possible for this
-      pair. Order the kit directly, or compare stack heights/NMT specs by hand.
+      No shim-by-shim list is on file for
+      ${missing.map((k) => `<strong>${k}</strong>`).join(' or ')}, so a shim-level delta isn't possible for this
+      pair. Open the linked drawing${missing.length > 1 ? 's' : ''} above, or compare stack heights by hand.
     </p>`;
           return;
         }
@@ -2138,6 +2283,7 @@
 
         document.getElementById('output').innerHTML = `
     ${metaLine}
+    ${noteLine}
 
     <div class="summary-grid">
       <div class="stat remove">

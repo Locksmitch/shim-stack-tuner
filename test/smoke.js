@@ -35,17 +35,24 @@ async function loadAndCollectErrors(browser, path) {
   return { page, errors };
 }
 
-// Geometry shared between the synthetic photo generator and the test's click sequence:
-// a filled circle of radius 200px centered at (250,250) - the valve's outer edge - and one
-// true annular-sector "port" (rInner=80, rOuter=150, half-angle=0.15rad, pointing straight
-// up), drawn the same way the app's own drawPortFaceDiagramInner draws a port (two arcs
-// joined by straight sides), so it's representative of a real port shape/rendering rather
-// than an arbitrary rectangle.
-const PORT_GEOM = { cx: 250, cy: 250, rInner: 80, rOuter: 150, halfAngle: 0.15, centerAngle: -Math.PI / 2 };
+// Shared between the synthetic photo generator and the test's expectations: a bright metal
+// disc (R=200px @ 250,250) on a dark surround, a dark center bore, and two concentric rings
+// of dark annular-sector ports drawn the way drawPortFaceDiagramInner draws a port (two arcs
+// joined by straight sides). From this the exact r/d/w.port and D.rod can be hand-computed
+// against the D.valve = 50mm scale (mmPerPx = 50 / (2 * 200) = 0.125).
+const VALVE_PHOTO = {
+  cx: 250,
+  cy: 250,
+  R: 200,
+  boreR: 26,
+  rings: [
+    { count: 4, halfAngle: 0.18, rInner: 55, rOuter: 95 }, // inner ring -> rebound
+    { count: 6, halfAngle: 0.14, rInner: 120, rOuter: 165 }, // outer ring -> compression
+  ],
+};
 
-// Generates the synthetic "valve photo" PNG (500x500) described above via an in-browser
-// canvas. Used to exercise the photo-measurement feature's actual click + edge-snap math
-// end-to-end, not just check the page loads.
+// Generates the synthetic valve-face PNG (500x500) via an in-browser canvas. Exercises the
+// photo tool's real auto-detection + manual-trace math end-to-end, not just "page loads".
 async function generateSyntheticValvePhoto(browser) {
   const page = await browser.newPage();
   const dataUrl = await page.evaluate((g) => {
@@ -53,29 +60,30 @@ async function generateSyntheticValvePhoto(browser) {
     c.width = 500;
     c.height = 500;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#282828';
     ctx.fillRect(0, 0, 500, 500);
-    ctx.fillStyle = '#888888';
+    ctx.fillStyle = '#c8c8c8';
     ctx.beginPath();
-    ctx.arc(g.cx, g.cy, 200, 0, 2 * Math.PI);
+    ctx.arc(g.cx, g.cy, g.R, 0, 2 * Math.PI);
     ctx.fill();
-    ctx.fillStyle = '#181818';
+    ctx.fillStyle = '#141414';
     ctx.beginPath();
-    ctx.arc(g.cx, g.cy, g.rOuter, g.centerAngle - g.halfAngle, g.centerAngle + g.halfAngle);
-    ctx.arc(g.cx, g.cy, g.rInner, g.centerAngle + g.halfAngle, g.centerAngle - g.halfAngle, true);
-    ctx.closePath();
+    ctx.arc(g.cx, g.cy, g.boreR, 0, 2 * Math.PI);
     ctx.fill();
+    for (const ring of g.rings) {
+      for (let k = 0; k < ring.count; k++) {
+        const a0 = (k * 2 * Math.PI) / ring.count - Math.PI / 2;
+        ctx.beginPath();
+        ctx.arc(g.cx, g.cy, ring.rOuter, a0 - ring.halfAngle, a0 + ring.halfAngle);
+        ctx.arc(g.cx, g.cy, ring.rInner, a0 + ring.halfAngle, a0 - ring.halfAngle, true);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
     return c.toDataURL('image/png');
-  }, PORT_GEOM);
+  }, VALVE_PHOTO);
   await page.close();
   return Buffer.from(dataUrl.split(',')[1], 'base64');
-}
-
-// The 4 sharp corners of PORT_GEOM's sector, in image-pixel space - used as click targets.
-function portCorners() {
-  const { cx, cy, rInner, rOuter, halfAngle, centerAngle } = PORT_GEOM;
-  const pt = (r, a) => ({ x: cx + r * Math.cos(centerAngle + a), y: cy + r * Math.sin(centerAngle + a) });
-  return [pt(rOuter, -halfAngle), pt(rOuter, halfAngle), pt(rInner, halfAngle), pt(rInner, -halfAngle)];
 }
 
 async function run() {
@@ -190,121 +198,97 @@ async function run() {
       await page.close();
     }
 
-    // ---- Shim Stack Tuner: photo-assisted port measurement, exercised end-to-end with a
-    // synthetic image whose exact pixel geometry is known (PORT_GEOM), so the computed
-    // r.port/d.port/w.port can be checked against hand-calculated expected values (not just
-    // "no errors"). Also exercises: edge-snapping (clicks are deliberately offset from the
-    // true corners - a pass requires the snap to have corrected them), tracing + averaging
-    // multiple ports, the "other ports" counter, and the N.port suggestion. ----
+    // ---- Shim Stack Tuner: photo port measurement. AUTO mode: upload the synthetic valve
+    // photo (two known port rings + a bore), confirm the tool auto-finds the groups and
+    // "Apply" writes r/d/w.port + N.port + D.rod + valve type, scaled from D.valve only.
+    // Then the MANUAL trace fallback. Expected values use mmPerPx = 50 / (2 * 200) = 0.125. ----
     {
+      const close = (a, b, tol) => Math.abs(a - b) < tol;
       const pngBuffer = await generateSyntheticValvePhoto(browser);
       const { page, errors } = await loadAndCollectErrors(browser, 'shim-stack-tuner.html');
       await page.waitForSelector('h1', { timeout: 5000 });
 
-      // The photo-measure section starts collapsed - open it.
       await page.evaluate(() => {
         document.querySelectorAll('details.diagram-box').forEach((d) => {
-          if (d.querySelector('#photoFile')) d.open = true;
+          if (d.querySelector('#photoFileFront')) d.open = true;
         });
       });
-      await page.waitForSelector('#photoFile', { state: 'attached', timeout: 5000 });
+      await page.waitForSelector('#photoFileFront', { state: 'attached', timeout: 5000 });
 
       await page.fill('#dValve', '50');
       await page.dispatchEvent('#dValve', 'input');
-      await page.setInputFiles('#photoFile', { name: 'test-valve.png', mimeType: 'image/png', buffer: pngBuffer });
-      await page.waitForTimeout(300);
-      await page.locator('#photoCanvas').scrollIntoViewIfNeeded();
+      await page.setInputFiles('#photoFileFront', { name: 'front.png', mimeType: 'image/png', buffer: pngBuffer });
+      await page.waitForFunction(() => document.querySelectorAll('#photoGroups .photo-group-row').length >= 2, null, {
+        timeout: 5000,
+      });
 
-      const box = await page.locator('#photoCanvas').boundingBox();
-      const imgW = 500,
-        imgH = 500;
-      const scale = Math.min(box.width / imgW, box.height / imgH);
-      const dw = imgW * scale,
-        dh = imgH * scale;
-      const offX = box.x + (box.width - dw) / 2;
-      const offY = box.y + (box.height - dh) / 2;
-      const toPage = (ix, iy) => ({ x: offX + ix * scale, y: offY + iy * scale });
+      // group rows come back inner-ring-first; label inner rebound, outer compression.
+      const selects = page.locator('#photoGroups .photo-group-row select');
+      await selects.nth(0).selectOption('rebound');
+      await selects.nth(1).selectOption('compression');
+      await page.waitForTimeout(50);
 
-      // Calibration: 3 points on the outer circle (radius 200, center 250,250).
-      for (const deg of [0, 130, 260]) {
-        const rad = (deg * Math.PI) / 180;
-        const p = toPage(250 + 200 * Math.cos(rad), 250 + 200 * Math.sin(rad));
-        await page.mouse.click(p.x, p.y);
+      const summary = await page.textContent('#photoSummary');
+      if (!/Compression: r\.port/.test(summary) || !/Rebound: r\.port/.test(summary)) {
+        throw new Error(`Photo auto-detect: expected a per-set summary, got: "${summary}"`);
       }
 
-      // Trace the port's 4 sharp corners, but click a few pixels off from each true corner
-      // (radially, toward/away from center) - within the edge-snap search radius, so a
-      // passing result requires snapping to have corrected the imprecision, not just luck.
-      const corners = portCorners();
-      const cx = PORT_GEOM.cx,
-        cy = PORT_GEOM.cy;
-      const offsetRadially = (pt, delta) => {
-        const d = Math.hypot(pt.x - cx, pt.y - cy);
-        const ux = (pt.x - cx) / d,
-          uy = (pt.y - cy) / d;
-        return { x: pt.x + ux * delta, y: pt.y + uy * delta };
-      };
-      const traceOnePort = async (deltas) => {
-        for (let i = 0; i < corners.length; i++) {
-          const offPt = offsetRadially(corners[i], deltas[i]);
-          const p = toPage(offPt.x, offPt.y);
-          await page.mouse.click(p.x, p.y);
-        }
-        await page.click('#photoFinishPortBtn');
-      };
-      await traceOnePort([5, -5, 5, -5]);
-      await page.waitForTimeout(100);
-
-      let portsHint = await page.textContent('#photoPortsHint');
-      if (!portsHint || !portsHint.includes('1 port traced')) {
-        throw new Error(`Photo measurement: expected "1 port traced" after finishing one port, got: "${portsHint}"`);
-      }
-
-      // Expected (mmPerPx = 50/(2*200) = 0.125): r.port=80*0.125=10, d.port=70*0.125=8.75, w.port=(2*0.15*150)*0.125=5.625
-      const close = (a, b, tol) => Math.abs(a - b) < tol;
-      function parsePortsHint(text) {
-        const m = text.match(/r\.port ≈ ([\d.]+)mm, d\.port ≈ ([\d.]+)mm, w\.port ≈ ([\d.]+)mm/);
-        if (!m) throw new Error(`Photo measurement: could not parse ports hint: "${text}"`);
-        return { rPort: parseFloat(m[1]), dPort: parseFloat(m[2]), wPort: parseFloat(m[3]) };
-      }
-      let avg = parsePortsHint(portsHint);
-      if (!close(avg.rPort, 10, 0.5) || !close(avg.dPort, 8.75, 0.5) || !close(avg.wPort, 5.625, 0.5)) {
-        throw new Error(
-          `Photo measurement (1 port, with edge-snap correcting offset clicks): expected r.port~10, d.port~8.75, w.port~5.625, got ${JSON.stringify(avg)}`,
-        );
-      }
-
-      // Trace a second port (same true shape, different offsets) and confirm averaging.
-      await traceOnePort([-4, 4, -4, 4]);
-      await page.waitForTimeout(100);
-      portsHint = await page.textContent('#photoPortsHint');
-      if (!portsHint || !portsHint.includes('2 ports traced')) {
-        throw new Error(`Photo measurement: expected "2 ports traced" after a second port, got: "${portsHint}"`);
-      }
-      avg = parsePortsHint(portsHint);
-      if (!close(avg.rPort, 10, 0.5) || !close(avg.dPort, 8.75, 0.5) || !close(avg.wPort, 5.625, 0.5)) {
-        throw new Error(`Photo measurement: 2-port average drifted too far from expected, got ${JSON.stringify(avg)}`);
-      }
-
-      // 2 more ports visible but not traced -> suggested N.port should be 2 traced + 2 = 4.
-      await page.fill('#photoOtherPorts', '2');
-      await page.dispatchEvent('#photoOtherPorts', 'input');
-      await page.waitForTimeout(100);
-      portsHint = await page.textContent('#photoPortsHint');
-      if (!portsHint.includes('suggested N.port = 4')) {
-        throw new Error(`Photo measurement: expected suggested N.port = 4, got: "${portsHint}"`);
-      }
-
+      await page.selectOption('#photoApplySetSel', 'compression');
       await page.click('#photoApplyBtn');
       await page.waitForTimeout(100);
-      const rPortVal = parseFloat(await page.$eval('#rPort', (el) => el.value));
-      const dPortVal = parseFloat(await page.$eval('#dPort', (el) => el.value));
-      const wPortVal = parseFloat(await page.$eval('#wPort', (el) => el.value));
-      const nPortVal = parseInt(await page.$eval('#nPort', (el) => el.value), 10);
-      if (!close(rPortVal, 10, 0.5) || !close(dPortVal, 8.75, 0.5) || !close(wPortVal, 5.625, 0.5) || nPortVal !== 4) {
-        throw new Error(
-          `Photo measurement: expected applied r.port~10, d.port~8.75, w.port~5.625, N.port=4, got r.port=${rPortVal}, d.port=${dPortVal}, w.port=${wPortVal}, N.port=${nPortVal}`,
-        );
+      const val = async (id) => parseFloat(await page.$eval(id, (el) => el.value));
+      const rP = await val('#rPort');
+      const dP = await val('#dPort');
+      const wP = await val('#wPort');
+      const nP = parseInt(await page.$eval('#nPort', (el) => el.value), 10);
+      const dRodV = await val('#dRod');
+      const vt = await page.$eval('#valveType', (el) => el.value);
+      // outer ring: rInner 120, rOuter 165, halfAngle 0.14 -> r~15, d~5.6, w~5.8, N=6
+      if (!close(rP, 15, 1.5) || !close(dP, 5.625, 1.5) || !close(wP, 5.78, 1.8) || nP !== 6) {
+        throw new Error(`Photo auto-detect apply: expected r~15 d~5.6 w~5.8 N=6, got r=${rP} d=${dP} w=${wP} N=${nP}`);
+      }
+      if (!close(dRodV, 2 * 26 * 0.125, 1.5)) throw new Error(`Photo auto-detect: D.rod expected ~6.5, got ${dRodV}`);
+      if (vt !== 'mainComp') throw new Error(`Photo auto-detect: expected valve type mainComp, got "${vt}"`);
+
+      // ---- Manual trace fallback: 3 edge clicks + trace the outer ring's top port ----
+      await page.locator('#photoModeToggle').check();
+      await page.waitForTimeout(50);
+      await page.locator('#photoSnapToggle').uncheck(); // click exact synthetic coords, no snap drift
+      // Centre the canvas in the viewport so no click lands under the sticky top nav.
+      await page.evaluate(() => document.getElementById('photoCanvas').scrollIntoView({ block: 'center' }));
+      await page.waitForTimeout(50);
+      const box = await page.locator('#photoCanvas').boundingBox();
+      const s = Math.min(box.width / 500, box.height / 500);
+      const offX = box.x + (box.width - 500 * s) / 2;
+      const offY = box.y + (box.height - 500 * s) / 2;
+      const toPage = (ix, iy) => ({ x: offX + ix * s, y: offY + iy * s });
+      for (const deg of [20, 150, 280]) {
+        const r = (deg * Math.PI) / 180;
+        const p = toPage(250 + 200 * Math.cos(r), 250 + 200 * Math.sin(r));
+        await page.mouse.click(p.x, p.y);
+      }
+      const ring = VALVE_PHOTO.rings[1];
+      const a0 = -Math.PI / 2;
+      const seq = [
+        [ring.rOuter, -ring.halfAngle],
+        [ring.rOuter, ring.halfAngle],
+        [ring.rInner, ring.halfAngle],
+        [ring.rInner, -ring.halfAngle],
+      ];
+      for (const [rr, da] of seq) {
+        const p = toPage(250 + rr * Math.cos(a0 + da), 250 + rr * Math.sin(a0 + da));
+        await page.mouse.click(p.x, p.y);
+      }
+      await page.click('#photoFinishPortBtn');
+      await page.waitForTimeout(50);
+      await page.selectOption('#photoApplySetSel', 'rebound');
+      await page.click('#photoApplyBtn');
+      await page.waitForTimeout(100);
+      const rReb = await val('#rPort');
+      if (!close(rReb, 15, 2))
+        throw new Error(`Photo manual trace: expected r.port ~15 for the traced port, got ${rReb}`);
+      if ((await page.$eval('#valveType', (el) => el.value)) !== 'mainRebound') {
+        throw new Error('Photo manual trace: expected valve type mainRebound after applying the rebound set');
       }
 
       if (errors.length > 0) throw new Error('Photo measurement console/page errors:\n' + errors.join('\n'));

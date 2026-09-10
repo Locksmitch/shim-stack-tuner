@@ -9,6 +9,7 @@ import { drawForceCurve as drawForceCurveVisual } from './js/force-curve-visual.
 import { drawOilChart as drawOilChartVisual, OIL_MIN_TEMP, OIL_MAX_TEMP } from './js/oil-chart-visual.js';
 import { setupCanvas } from './js/canvas-utils.js';
 import { circleFrom3Points, computePortGeometryFromOutline, findStrongestEdgeNear } from './js/photo-measure.js';
+import { analysePhoto } from './js/image-analysis.js';
 import { broadcastLiveVisuals } from './js/live-sync.js';
 
 let resultUnit = 'mm'; // display unit for force/velocity/outputs
@@ -470,168 +471,419 @@ function drawPortFaceDiagramInner() {
 
 /* =========================================================
    PHOTO-ASSISTED PORT MEASUREMENT
-   Lets the user trace 3 points on the valve's outer edge (to set scale from D.valve), then
-   a freeform outline (3+ points, any shape - sharp sector, rounded, kidney, D-shaped)
-   around one or more ports directly on an uploaded photo. Each click snaps to the nearest
-   real edge in the photo (a local Sobel gradient search - see findStrongestEdgeNear in
-   photo-measure.js) so clicks don't need to be pixel-perfect. r.port/d.port/w.port are
-   computed per traced port (matching the model drawn above: an annular sector from r.port
-   to r.port+d.port, w.port as an outer-edge arc width - see computePortGeometryFromOutline)
-   then averaged across however many ports were traced. Click points are stored in the
-   PHOTO'S OWN natural pixel space (not canvas/CSS pixels) so the overlay and the edge-snap
-   search both stay correctly anchored to the image if the canvas is later resized -
-   photoImageToCanvasPt re-projects them at draw time.
+   Enter one real dimension - D.valve, the piston outer diameter - then upload a straight-on
+   photo of one or both piston faces. js/image-analysis.js finds the outer edge (pixel->mm
+   scale + centre), the rod bore (D.rod) and the through-hole ports, clustered into radial
+   groups. You label each group compression / rebound / throat / ignore; the tool keeps a
+   compression set and a rebound set (each averaged across both photos' same-labelled groups)
+   and "Apply [set]" writes r/d/w.port + N.port + D.rod + d.thrt/N.thrt + valve type into the
+   geometry fields. "Manual trace mode" keeps the older 3-clicks-on-the-edge then
+   trace-each-port flow (see computePortGeometryFromOutline / findStrongestEdgeNear in
+   photo-measure.js) as a fallback for photos auto-detection can't handle. Points are stored
+   in the PHOTO'S OWN natural pixel space (not canvas px) so the overlay and edge-snap stay
+   anchored if the canvas resizes - photoImageToCanvasPt re-projects at draw time.
    ========================================================= */
-let photoImg = null;
-let photoOffscreenCtx = null; // full-resolution copy of photoImg, read for edge-snapping
-let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the image is CURRENTLY drawn
-let photoStep = 'calibrate'; // 'calibrate' | 'trace'
-let photoCalibPts = []; // clicked points, in image-natural-pixel space
-let photoCenter = null; // image-natural-pixel space
-let photoRadiusImgPx = null;
-let photoMmPerPx = null;
-let photoCurrentTrace = []; // points of the port currently being traced (image space)
-let photoCompletedPorts = []; // [{points, result:{rPort,dPort,wPort}}] - one per traced port
-let photoOtherPortsCount = 0; // extra ports seen but not traced, for the N.port suggestion
-let photoSnapEnabled = true;
+const PHOTO_LABELS = ['compression', 'rebound', 'throat', 'ignore'];
+const PHOTO_COLORS = { compression: '#2f6fed', rebound: '#0f9d58', throat: '#eab308', ignore: '#9aa4b2' };
+
+let photos = []; // one entry per uploaded face; photos[0] = front, photos[1] = back
+let photoActive = 0; // which entry the canvas shows
+let photoMode = 'auto'; // 'auto' | 'manual'
+let photoSnapEnabled = true; // manual-mode edge snap
+let photoApplySet = 'compression'; // which stored set "Apply" writes
+let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the active image is drawn
+let photoAdjusting = false; // dragging the outer-circle handles (auto mode)
+
+function photoEntry() {
+  return photos[photoActive] || null;
+}
+function makePhotoEntry(slot, name, img) {
+  const off = document.createElement('canvas');
+  off.width = img.naturalWidth;
+  off.height = img.naturalHeight;
+  const octx = off.getContext('2d', { willReadFrequently: true });
+  octx.drawImage(img, 0, 0);
+  return {
+    slot,
+    name,
+    img,
+    offscreenCtx: octx, // full-res, for manual-mode edge snapping
+    analysis: null,
+    labels: {}, // groupId -> one of PHOTO_LABELS
+    handles: null, // 3 points on the outer circle, for "Adjust circle"
+    manual: {
+      step: 'calibrate',
+      calibPts: [],
+      center: null,
+      radiusPx: null,
+      mmPerPx: null,
+      currentTrace: [],
+      ports: [],
+    },
+  };
+}
+function hexToRgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
 
 function photoCanvasToImagePt(x, y) {
+  const e = photoEntry();
   return {
-    x: ((x - photoDrawRect.x) * photoImg.naturalWidth) / photoDrawRect.w,
-    y: ((y - photoDrawRect.y) * photoImg.naturalHeight) / photoDrawRect.h,
+    x: ((x - photoDrawRect.x) * e.img.naturalWidth) / photoDrawRect.w,
+    y: ((y - photoDrawRect.y) * e.img.naturalHeight) / photoDrawRect.h,
   };
 }
 function photoImageToCanvasPt(pt) {
+  const e = photoEntry();
   return {
-    x: photoDrawRect.x + (pt.x * photoDrawRect.w) / photoImg.naturalWidth,
-    y: photoDrawRect.y + (pt.y * photoDrawRect.h) / photoImg.naturalHeight,
+    x: photoDrawRect.x + (pt.x * photoDrawRect.w) / e.img.naturalWidth,
+    y: photoDrawRect.y + (pt.y * photoDrawRect.h) / e.img.naturalHeight,
   };
 }
 
-// Reads a small region of the FULL-RESOLUTION image (not the possibly-downscaled on-screen
-// canvas, so a display that's shrunk to fit still snaps against real detail) around
-// (imgX, imgY) and snaps to the strongest nearby edge, in image-natural-pixel space.
+// Reads a small full-resolution region around (imgX, imgY) and snaps to the strongest
+// nearby edge (manual mode only), in the photo's natural pixel space.
 function photoSnapPoint(imgX, imgY) {
-  if (!photoSnapEnabled || !photoOffscreenCtx) return { x: imgX, y: imgY };
+  const e = photoEntry();
+  if (!photoSnapEnabled || !e || !e.offscreenCtx) return { x: imgX, y: imgY };
   const radius = 12,
     pad = 2;
   const x0 = Math.max(0, Math.floor(imgX - radius - pad));
   const y0 = Math.max(0, Math.floor(imgY - radius - pad));
-  const x1 = Math.min(photoImg.naturalWidth, Math.ceil(imgX + radius + pad));
-  const y1 = Math.min(photoImg.naturalHeight, Math.ceil(imgY + radius + pad));
+  const x1 = Math.min(e.img.naturalWidth, Math.ceil(imgX + radius + pad));
+  const y1 = Math.min(e.img.naturalHeight, Math.ceil(imgY + radius + pad));
   const w = x1 - x0,
     h = y1 - y0;
   if (w <= 2 || h <= 2) return { x: imgX, y: imgY };
-  const region = photoOffscreenCtx.getImageData(x0, y0, w, h);
+  const region = e.offscreenCtx.getImageData(x0, y0, w, h);
   const found = findStrongestEdgeNear(region, imgX - x0, imgY - y0, radius, 150);
   return found ? { x: x0 + found.x, y: y0 + found.y } : { x: imgX, y: imgY };
 }
 
-function photoAveraged() {
-  if (photoCompletedPorts.length === 0) return null;
-  const sum = photoCompletedPorts.reduce(
-    (acc, p) => ({
-      rPort: acc.rPort + p.result.rPort,
-      dPort: acc.dPort + p.result.dPort,
-      wPort: acc.wPort + p.result.wPort,
-    }),
-    { rPort: 0, dPort: 0, wPort: 0 },
-  );
-  const n = photoCompletedPorts.length;
-  return { rPort: sum.rPort / n, dPort: sum.dPort / n, wPort: sum.wPort / n };
+// Runs the CV pipeline on one photo. Analysis is done on a size-capped copy for speed;
+// analysePhoto maps its results back to the photo's natural pixel space via srcToNatural,
+// so they share the manual flow's coordinate model.
+function runPhotoAnalysis(entry) {
+  const dValveMM = getFieldMM('dValve');
+  const iw = entry.img.naturalWidth,
+    ih = entry.img.naturalHeight;
+  const s = Math.min(1, 1400 / Math.max(iw, ih));
+  const cw = Math.max(1, Math.round(iw * s)),
+    ch = Math.max(1, Math.round(ih * s));
+  const tmp = document.createElement('canvas');
+  tmp.width = cw;
+  tmp.height = ch;
+  const tctx = tmp.getContext('2d', { willReadFrequently: true });
+  tctx.drawImage(entry.img, 0, 0, cw, ch);
+  entry.analysis = analysePhoto(tctx.getImageData(0, 0, cw, ch), dValveMM, 1 / s);
+  entry.labels = {};
+  entry.handles = null;
+  const a = entry.analysis;
+  if (!a.ok) return;
+  const c = a.circle;
+  entry.handles = [0, 2.0944, 4.1888].map((ang) => ({ x: c.cx + c.r * Math.cos(ang), y: c.cy + c.r * Math.sin(ang) }));
+  const portGroups = a.groups.filter((g) => g.kind !== 'throat').sort((x, y) => x.meanRadiusMM - y.meanRadiusMM);
+  a.groups.forEach((g) => {
+    if (g.kind === 'throat') entry.labels[g.id] = 'throat';
+    else if (portGroups.length === 2 && g.id === portGroups[0].id) entry.labels[g.id] = 'rebound';
+    else entry.labels[g.id] = 'compression';
+  });
 }
 
-function photoCurrentInstruction() {
-  if (!photoImg) return 'Choose a photo to begin.';
-  if (photoStep === 'calibrate') {
-    const n = photoCalibPts.length;
+// Re-fit the outer circle from the 3 dragged handles and recompute every port's geometry
+// and the bore against the new scale (Adjust circle, auto mode).
+function photoRefitFromHandles(entry) {
+  const fit = circleFrom3Points(entry.handles[0], entry.handles[1], entry.handles[2]);
+  const dValveMM = getFieldMM('dValve');
+  const a = entry.analysis;
+  if (!fit || !(dValveMM > 0) || !a || !a.ok) return;
+  const circle = { cx: fit.center.x, cy: fit.center.y, r: fit.r };
+  const mmPerPx = dValveMM / (2 * fit.r);
+  a.circle = circle;
+  a.mmPerPx = mmPerPx;
+  const center = { x: circle.cx, y: circle.cy };
+  a.groups.forEach((g) => {
+    g.ports.forEach((p) => (p.geom = computePortGeometryFromOutline(center, mmPerPx, p.boundary)));
+    g.meanRadiusMM =
+      (g.ports.reduce((s, p) => s + Math.hypot(p.centroid.x - circle.cx, p.centroid.y - circle.cy), 0) /
+        g.ports.length) *
+      mmPerPx;
+  });
+  if (a.bore) a.dRodMM = 2 * a.bore.r * mmPerPx;
+}
+
+// Merges every group carrying each label, across both photos, into the final port sets
+// plus a throat spec and a D.rod reading.
+function resolvePhotoSets() {
+  const buckets = { compression: [], rebound: [], throat: [] };
+  const dRods = [];
+  for (const entry of photos) {
+    if (!entry) continue;
+    const auto = photoMode === 'auto' && entry.analysis && entry.analysis.ok;
+    if (auto) {
+      if (entry.analysis.dRodMM) dRods.push(entry.analysis.dRodMM);
+      for (const g of entry.analysis.groups) {
+        const label = entry.labels[g.id] || 'ignore';
+        if (label === 'ignore') continue;
+        const live = g.ports.filter((p) => !p.excluded && p.geom);
+        if (!live.length) continue;
+        const avg = (f) => live.reduce((s, p) => s + f(p.geom), 0) / live.length;
+        buckets[label].push({
+          rPort: avg((x) => x.rPort),
+          dPort: avg((x) => x.dPort),
+          wPort: avg((x) => x.wPort),
+          count: Math.max(live.length, g.suggestedCount || live.length),
+        });
+      }
+    } else {
+      const m = entry.manual;
+      if (m && m.ports.length && m.mmPerPx) {
+        const label = photoApplySet === 'rebound' ? 'rebound' : 'compression';
+        m.ports.forEach((p) =>
+          buckets[label].push({
+            rPort: p.result.rPort,
+            dPort: p.result.dPort,
+            wPort: p.result.wPort,
+            count: m.ports.length,
+          }),
+        );
+      }
+    }
+  }
+  const mergePorts = (arr) => {
+    if (!arr.length) return null;
+    const a = (f) => arr.reduce((s, x) => s + f(x), 0) / arr.length;
+    return {
+      rPort: a((x) => x.rPort),
+      dPort: a((x) => x.dPort),
+      wPort: a((x) => x.wPort),
+      nPort: Math.max(...arr.map((x) => x.count)),
+    };
+  };
+  const throat = buckets.throat.length
+    ? {
+        dThrt: buckets.throat.reduce((s, x) => s + (x.dPort + x.wPort) / 2, 0) / buckets.throat.length,
+        nThrt: Math.max(...buckets.throat.map((x) => x.count)),
+      }
+    : null;
+  return {
+    compression: mergePorts(buckets.compression),
+    rebound: mergePorts(buckets.rebound),
+    throat,
+    dRodMM: dRods.length ? dRods.reduce((s, x) => s + x, 0) / dRods.length : null,
+  };
+}
+function photoCanApply() {
+  const s = resolvePhotoSets();
+  return !!(s.compression || s.rebound);
+}
+
+function photoManualInstruction(m) {
+  if (m.step === 'calibrate') {
+    const n = m.calibPts.length;
     return n === 0
       ? "Click 3 points anywhere along the valve's outer edge."
-      : `${3 - n} more point${3 - n === 1 ? '' : 's'} needed on the outer edge (${n}/3 placed).`;
+      : `${3 - n} more edge point${3 - n === 1 ? '' : 's'} (${n}/3).`;
   }
-  const n = photoCurrentTrace.length;
+  const n = m.currentTrace.length;
   return n === 0
-    ? 'Click points around this port\'s boundary (at least 3), then press "Finish this port".'
-    : `${n} point${n === 1 ? '' : 's'} placed - click more, or press "Finish this port" when the outline looks right.`;
+    ? 'Click points around one port (3+), then "Finish this port".'
+    : `${n} point${n === 1 ? '' : 's'} - keep clicking, or press "Finish this port".`;
+}
+
+// (Re)builds the per-group label rows for the active photo (auto mode only).
+function renderPhotoGroups() {
+  const host = document.getElementById('photoGroups');
+  if (!host) return;
+  host.innerHTML = '';
+  const e = photoEntry();
+  if (photoMode !== 'auto' || !e || !e.analysis || !e.analysis.ok) return;
+  e.analysis.groups.forEach((g) => {
+    const label = e.labels[g.id] || 'ignore';
+    const live = g.ports.filter((p) => !p.excluded).length;
+    const row = document.createElement('div');
+    row.className = 'photo-group-row';
+    const dot = document.createElement('span');
+    dot.className = 'photo-group-dot';
+    dot.style.background = PHOTO_COLORS[label];
+    const txt = document.createElement('span');
+    txt.className = 'photo-group-text';
+    txt.textContent = `${live} port${live === 1 ? '' : 's'} · r≈${fmtLen(g.meanRadiusMM, 'mm')}mm · ${
+      g.kind === 'throat' ? 'small/round' : 'kidney'
+    }`;
+    const sel = document.createElement('select');
+    sel.className = 'small';
+    PHOTO_LABELS.forEach((L) => {
+      const o = document.createElement('option');
+      o.value = L;
+      o.textContent = L[0].toUpperCase() + L.slice(1);
+      o.selected = L === label;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => {
+      e.labels[g.id] = sel.value;
+      updatePhotoUI();
+      drawPhotoCanvas();
+    });
+    row.append(dot, txt, sel);
+    host.appendChild(row);
+  });
+}
+
+function photoSetSummaryText(sets) {
+  const line = (name, s) =>
+    s
+      ? `${name}: r.port ${fmtLen(s.rPort, 'mm')} · d.port ${fmtLen(s.dPort, 'mm')} · w.port ${fmtLen(s.wPort, 'mm')} mm · N ${Math.round(s.nPort)}`
+      : `${name}: —`;
+  const out = [line('Compression', sets.compression), line('Rebound', sets.rebound)];
+  if (sets.throat)
+    out.push(`Throat: d.thrt ${fmtLen(sets.throat.dThrt, 'mm')} mm · N ${Math.round(sets.throat.nThrt)}`);
+  if (sets.dRodMM) out.push(`D.rod ≈ ${fmtLen(sets.dRodMM, 'mm')} mm`);
+  return out.join('\n');
 }
 
 function updatePhotoUI() {
-  document.getElementById('photoStepHint').textContent = photoCurrentInstruction();
-  const portsHint = document.getElementById('photoPortsHint');
-  if (photoCompletedPorts.length > 0) {
-    const avg = photoAveraged();
-    const n = photoCompletedPorts.length;
-    const suggestedN = n + photoOtherPortsCount;
-    portsHint.textContent =
-      `${n} port${n === 1 ? '' : 's'} traced — average r.port ≈ ${fmtLen(avg.rPort, 'mm')}mm, ` +
-      `d.port ≈ ${fmtLen(avg.dPort, 'mm')}mm, w.port ≈ ${fmtLen(avg.wPort, 'mm')}mm — suggested N.port = ${suggestedN}.`;
-  } else {
-    portsHint.textContent = '';
+  const e = photoEntry();
+  const loaded = photos.filter(Boolean).length;
+  const manual = photoMode === 'manual';
+
+  const tabs = document.getElementById('photoTabs');
+  if (tabs) {
+    tabs.style.display = loaded > 1 ? '' : 'none';
+    tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('active', Number(b.dataset.idx) === photoActive));
   }
-  document.getElementById('photoFinishPortBtn').disabled = photoStep !== 'trace' || photoCurrentTrace.length < 3;
-  document.getElementById('photoApplyBtn').disabled = photoCompletedPorts.length === 0;
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  };
+  show('photoModeRow', !!e);
+  const snapLabel = document.getElementById('photoSnapToggle').closest('label');
+  if (snapLabel) snapLabel.style.display = manual ? '' : 'none';
+  show('photoUndoBtn', manual);
+  show('photoFinishPortBtn', manual);
+  show('photoAdjustBtn', !!e && !manual);
+  show('photoApplyRow', !!e);
+
+  const hint = document.getElementById('photoStepHint');
+  if (!e) hint.textContent = 'Enter D.valve above, then choose a front photo.';
+  else if (manual) hint.textContent = photoManualInstruction(e.manual);
+  else if (!e.analysis) hint.textContent = 'Analysing…';
+  else if (!e.analysis.ok)
+    hint.textContent = e.analysis.warnings[0] || 'Auto-detection failed — try Manual trace mode.';
+  else
+    hint.textContent =
+      'Set each group to compression / rebound / throat / ignore. Click a port on the image to drop it.';
+
+  const warnEl = document.getElementById('photoWarnings');
+  const warns = !manual && e && e.analysis && e.analysis.warnings ? e.analysis.warnings : [];
+  warnEl.textContent = warns.join(' ');
+  warnEl.style.display = warnEl.textContent ? '' : 'none';
+
+  if (photoAdjusting) document.getElementById('photoAdjustBtn').classList.add('active');
+  else document.getElementById('photoAdjustBtn').classList.remove('active');
+
+  renderPhotoGroups();
+
+  const sets = resolvePhotoSets();
+  const sum = document.getElementById('photoSummary');
+  sum.textContent = photoCanApply() ? photoSetSummaryText(sets) : '';
+  sum.style.display = sum.textContent ? '' : 'none';
+
+  document.getElementById('photoApplyBtn').disabled = !photoCanApply();
+  document.getElementById('photoResetBtn').disabled = !e;
   document.getElementById('photoUndoBtn').disabled =
-    !photoImg || (photoStep === 'calibrate' && photoCalibPts.length === 0);
-  document.getElementById('photoResetBtn').disabled = !photoImg;
+    !manual || !e || (e.manual.step === 'calibrate' && !e.manual.calibPts.length && !e.manual.ports.length);
+  document.getElementById('photoFinishPortBtn').disabled = !manual || !e || e.manual.currentTrace.length < 3;
+  const applySel = document.getElementById('photoApplySetSel');
+  if (applySel && applySel.value !== photoApplySet) applySel.value = photoApplySet;
+}
+
+function drawCircleImg(ctx, c, stroke, dash) {
+  const p = photoImageToCanvasPt({ x: c.cx, y: c.cy });
+  const rPx = c.r * (photoDrawRect.w / photoEntry().img.naturalWidth);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(dash || []);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, rPx, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+function drawPolyImg(ctx, imgPts, fill, stroke) {
+  if (imgPts.length < 2) return;
+  const pts = imgPts.map(photoImageToCanvasPt);
+  ctx.beginPath();
+  pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+  if (fill) {
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
 function drawPhotoCanvas() {
-  if (!photoImg) return;
+  const e = photoEntry();
+  if (!e) return;
   const cv = document.getElementById('photoCanvas');
   const { ctx, w, h } = setupCanvas(cv);
   ctx.clearRect(0, 0, w, h);
-
-  // "contain" fit: scale the image into w x h, preserving aspect ratio, centered.
-  const scale = Math.min(w / photoImg.naturalWidth, h / photoImg.naturalHeight);
-  const dw = photoImg.naturalWidth * scale,
-    dh = photoImg.naturalHeight * scale;
+  const scale = Math.min(w / e.img.naturalWidth, h / e.img.naturalHeight);
+  const dw = e.img.naturalWidth * scale,
+    dh = e.img.naturalHeight * scale;
   photoDrawRect = { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
-  ctx.drawImage(photoImg, photoDrawRect.x, photoDrawRect.y, dw, dh);
+  ctx.drawImage(e.img, photoDrawRect.x, photoDrawRect.y, dw, dh);
 
-  // calibration points + the fitted outer-edge circle
-  photoCalibPts.forEach((pt) => {
+  if (photoMode === 'auto' && e.analysis && e.analysis.ok) {
+    const a = e.analysis;
+    drawCircleImg(ctx, a.circle, '#eab308', [6, 4]);
+    if (a.bore) drawCircleImg(ctx, a.bore, '#5b6472', []);
+    a.groups.forEach((g) => {
+      const col = PHOTO_COLORS[e.labels[g.id] || 'ignore'];
+      g.ports.forEach((p) =>
+        drawPolyImg(
+          ctx,
+          p.contour,
+          p.excluded ? 'rgba(154,164,178,0.12)' : hexToRgba(col, 0.28),
+          p.excluded ? '#9aa4b2' : col,
+        ),
+      );
+    });
+    if (photoAdjusting && e.handles) {
+      e.handles.forEach((hp) => {
+        const q = photoImageToCanvasPt(hp);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = '#eab308';
+        ctx.fill();
+        ctx.strokeStyle = '#1c2430';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+    }
+    return;
+  }
+
+  // manual mode overlay
+  const m = e.manual;
+  m.calibPts.forEach((pt) => {
     const p = photoImageToCanvasPt(pt);
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
     ctx.fillStyle = '#eab308';
     ctx.fill();
   });
-  if (photoCenter && photoRadiusImgPx) {
-    const c = photoImageToCanvasPt(photoCenter);
-    const rPx = photoRadiusImgPx * (photoDrawRect.w / photoImg.naturalWidth);
-    ctx.strokeStyle = '#eab308';
-    ctx.setLineDash([5, 4]);
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, rPx, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, 3, 0, 2 * Math.PI);
-    ctx.fillStyle = '#eab308';
-    ctx.fill();
-  }
-
-  // completed ports: muted closed outlines, so you can see what's already been captured
-  photoCompletedPorts.forEach(({ points }) => {
-    const cvPts = points.map(photoImageToCanvasPt);
-    ctx.beginPath();
-    cvPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(143,168,224,0.2)';
-    ctx.fill();
-    ctx.strokeStyle = '#8fa8e0';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  });
-
-  // the port currently being traced: an open polyline (not yet closed) with its own points
-  if (photoCurrentTrace.length > 0) {
-    const cvPts = photoCurrentTrace.map(photoImageToCanvasPt);
+  if (m.center && m.radiusPx) drawCircleImg(ctx, { cx: m.center.x, cy: m.center.y, r: m.radiusPx }, '#eab308', [5, 4]);
+  m.ports.forEach(({ points }) => drawPolyImg(ctx, points, 'rgba(143,168,224,0.2)', '#8fa8e0'));
+  if (m.currentTrace.length) {
+    const cvPts = m.currentTrace.map(photoImageToCanvasPt);
     ctx.strokeStyle = '#2f6fed';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    cvPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    cvPts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     ctx.stroke();
     ctx.fillStyle = '#2f6fed';
     cvPts.forEach((p) => {
@@ -642,133 +894,184 @@ function drawPhotoCanvas() {
   }
 }
 
-function photoCanvasClick(e) {
-  if (!photoImg || !photoDrawRect) return;
-  const cv = document.getElementById('photoCanvas');
-  const rect = cv.getBoundingClientRect();
-  const cx = e.clientX - rect.left,
-    cy = e.clientY - rect.top;
-  // ignore clicks outside the drawn image (the letterboxed margin, if any)
+function photoPointInPoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i],
+      b = poly[j];
+    if (a.y > pt.y !== b.y > pt.y && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function photoCanvasClick(ev) {
+  const entry = photoEntry();
+  if (!entry || !photoDrawRect) return;
+  const rect = document.getElementById('photoCanvas').getBoundingClientRect();
+  const cx = ev.clientX - rect.left,
+    cy = ev.clientY - rect.top;
   if (
     cx < photoDrawRect.x ||
     cx > photoDrawRect.x + photoDrawRect.w ||
     cy < photoDrawRect.y ||
     cy > photoDrawRect.y + photoDrawRect.h
-  ) {
+  )
     return;
-  }
-  const raw = photoCanvasToImagePt(cx, cy);
-  const pt = photoSnapPoint(raw.x, raw.y);
+  const img = photoCanvasToImagePt(cx, cy);
 
-  if (photoStep === 'calibrate') {
-    photoCalibPts.push(pt);
-    if (photoCalibPts.length === 3) {
-      const fit = circleFrom3Points(photoCalibPts[0], photoCalibPts[1], photoCalibPts[2]);
-      if (!fit) {
-        photoCalibPts.pop();
-        updatePhotoUI();
-        document.getElementById('photoStepHint').textContent =
-          'Those 3 points are too close to a straight line to fit a circle - click a point further around the edge.';
-        drawPhotoCanvas();
-        return;
+  if (photoMode === 'auto') {
+    const a = entry.analysis;
+    if (!a || !a.ok) return;
+    if (photoAdjusting && entry.handles) {
+      let bi = 0,
+        bd = Infinity;
+      entry.handles.forEach((hp, i) => {
+        const d = Math.hypot(hp.x - img.x, hp.y - img.y);
+        if (d < bd) ((bd = d), (bi = i));
+      });
+      entry.handles[bi] = photoSnapPoint(img.x, img.y);
+      photoRefitFromHandles(entry);
+    } else {
+      for (const g of a.groups) {
+        for (const p of g.ports) {
+          if (photoPointInPoly(img, p.contour)) {
+            p.excluded = !p.excluded;
+            updatePhotoUI();
+            drawPhotoCanvas();
+            return;
+          }
+        }
       }
-      const dValveMM = getFieldMM('dValve');
-      if (!(dValveMM > 0)) {
-        photoCalibPts = [];
-        updatePhotoUI();
-        document.getElementById('photoStepHint').textContent = 'Enter D.valve (above) before calibrating.';
-        drawPhotoCanvas();
-        return;
-      }
-      photoCenter = fit.center;
-      photoRadiusImgPx = fit.r;
-      photoMmPerPx = dValveMM / (2 * fit.r);
-      photoStep = 'trace';
+      return;
     }
-  } else if (photoStep === 'trace') {
-    photoCurrentTrace.push(pt);
+  } else {
+    const m = entry.manual;
+    const pt = photoSnapPoint(img.x, img.y);
+    if (m.step === 'calibrate') {
+      m.calibPts.push(pt);
+      if (m.calibPts.length === 3) {
+        const fit = circleFrom3Points(m.calibPts[0], m.calibPts[1], m.calibPts[2]);
+        const dValveMM = getFieldMM('dValve');
+        if (!fit) {
+          m.calibPts.pop();
+          document.getElementById('photoStepHint').textContent =
+            'Those 3 points are nearly in a line - click further around the edge.';
+          drawPhotoCanvas();
+          return;
+        }
+        if (!(dValveMM > 0)) {
+          m.calibPts = [];
+          document.getElementById('photoStepHint').textContent = 'Enter D.valve (above) first.';
+          drawPhotoCanvas();
+          return;
+        }
+        m.center = fit.center;
+        m.radiusPx = fit.r;
+        m.mmPerPx = dValveMM / (2 * fit.r);
+        m.step = 'trace';
+      }
+    } else {
+      m.currentTrace.push(pt);
+    }
   }
   updatePhotoUI();
   drawPhotoCanvas();
 }
 
 function photoFinishPort() {
-  if (photoCurrentTrace.length < 3) return;
-  const result = computePortGeometryFromOutline(photoCenter, photoMmPerPx, photoCurrentTrace);
-  photoCompletedPorts.push({ points: photoCurrentTrace.slice(), result });
-  photoCurrentTrace = [];
+  const e = photoEntry();
+  if (!e || photoMode !== 'manual') return;
+  const m = e.manual;
+  if (m.currentTrace.length < 3) return;
+  m.ports.push({
+    points: m.currentTrace.slice(),
+    result: computePortGeometryFromOutline(m.center, m.mmPerPx, m.currentTrace),
+  });
+  m.currentTrace = [];
   updatePhotoUI();
   drawPhotoCanvas();
 }
 
 function photoUndo() {
-  if (photoStep === 'calibrate') {
-    photoCalibPts.pop();
-  } else if (photoStep === 'trace') {
-    if (photoCurrentTrace.length > 0) {
-      photoCurrentTrace.pop();
-    } else if (photoCompletedPorts.length > 0) {
-      photoCompletedPorts.pop();
-    } else {
-      photoStep = 'calibrate';
-      photoCenter = null;
-      photoRadiusImgPx = null;
-      photoMmPerPx = null;
-      photoCalibPts.pop();
-    }
+  const e = photoEntry();
+  if (!e || photoMode !== 'manual') return;
+  const m = e.manual;
+  if (m.step === 'calibrate') m.calibPts.pop();
+  else if (m.currentTrace.length) m.currentTrace.pop();
+  else if (m.ports.length) m.ports.pop();
+  else {
+    m.step = 'calibrate';
+    m.center = m.radiusPx = m.mmPerPx = null;
+    m.calibPts = [];
   }
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+function setPhotoMode(mode) {
+  photoMode = mode === 'manual' ? 'manual' : 'auto';
+  photoAdjusting = false;
+  const e = photoEntry();
+  if (e && photoMode === 'auto' && !e.analysis) runPhotoAnalysis(e);
   updatePhotoUI();
   drawPhotoCanvas();
 }
 
 function photoReset() {
-  photoStep = 'calibrate';
-  photoCalibPts = [];
-  photoCenter = null;
-  photoRadiusImgPx = null;
-  photoMmPerPx = null;
-  photoCurrentTrace = [];
-  photoCompletedPorts = [];
-  photoOtherPortsCount = 0;
-  const otherEl = document.getElementById('photoOtherPorts');
-  if (otherEl) otherEl.value = 0;
+  photos = [];
+  photoActive = 0;
+  photoAdjusting = false;
+  photoApplySet = 'compression';
+  ['photoFileFront', 'photoFileBack'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('photoCanvas').style.display = 'none';
   updatePhotoUI();
-  drawPhotoCanvas();
 }
 
 function applyPhotoResult() {
-  const avg = photoAveraged();
-  if (!avg) return;
-  setFieldValueAndUnit('rPort', fmtLen(avg.rPort, 'mm'), 'mm');
-  setFieldValueAndUnit('dPort', fmtLen(avg.dPort, 'mm'), 'mm');
-  setFieldValueAndUnit('wPort', fmtLen(avg.wPort, 'mm'), 'mm');
-  ['rPort', 'dPort', 'wPort'].forEach((id) => {
-    document.getElementById(id).dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  if (document.getElementById('photoApplyNPort').checked) {
-    document.getElementById('nPort').value = photoCompletedPorts.length + photoOtherPortsCount;
-    document.getElementById('nPort').dispatchEvent(new Event('input', { bubbles: true }));
+  const sets = resolvePhotoSets();
+  const chosen = sets[photoApplySet];
+  if (!chosen) return;
+  const changed = [];
+  const setMM = (id, mm) => {
+    setFieldValueAndUnit(id, fmtLen(mm, 'mm'), 'mm');
+    changed.push(id);
+  };
+  setMM('rPort', chosen.rPort);
+  setMM('dPort', chosen.dPort);
+  setMM('wPort', chosen.wPort);
+  document.getElementById('nPort').value = Math.max(1, Math.round(chosen.nPort));
+  changed.push('nPort');
+  if (sets.throat) {
+    setMM('dThrt', sets.throat.dThrt);
+    document.getElementById('nThrt').value = Math.max(1, Math.round(sets.throat.nThrt));
+    changed.push('nThrt');
   }
+  if (sets.dRodMM) setMM('dRod', sets.dRodMM);
+  const vt = document.getElementById('valveType');
+  if (vt.value !== 'base') {
+    vt.value = photoApplySet === 'rebound' ? 'mainRebound' : 'mainComp';
+    changed.push('valveType');
+  }
+  changed.forEach((id) => document.getElementById(id).dispatchEvent(new Event('input', { bubbles: true })));
 }
 
 function loadPhotoFile(evt) {
   const file = evt.target.files[0];
+  const slot = Number(evt.target.dataset.slot || 0);
   if (!file) return;
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
     URL.revokeObjectURL(url);
-    photoImg = img;
-    // A separate, never-displayed canvas holding the image at FULL resolution, so edge
-    // snapping always reads real detail even when the on-screen canvas has to shrink a
-    // large photo to fit.
-    const off = document.createElement('canvas');
-    off.width = img.naturalWidth;
-    off.height = img.naturalHeight;
-    photoOffscreenCtx = off.getContext('2d', { willReadFrequently: true });
-    photoOffscreenCtx.drawImage(img, 0, 0);
-    photoReset();
+    const entry = makePhotoEntry(slot, file.name, img);
+    photos[slot] = entry;
+    photoActive = slot;
+    if (photoMode === 'auto') runPhotoAnalysis(entry);
     document.getElementById('photoCanvas').style.display = 'block';
+    updatePhotoUI();
     drawPhotoCanvas();
   };
   img.onerror = () => {
@@ -1015,6 +1318,24 @@ function refreshCustomState() {
   }
 }
 
+// FOX publishes a dimensioned assembly drawing (PDF) for every Float X / DHX service kit.
+// The kits split across two help-page asset dirs by model year; only the six 2022 kits use
+// the older one. Returns null for any kit number that isn't a Float X / DHX valve-stack kit
+// (e.g. the 820-xx FOX 38 kits, or RockShox's R01/C03 codes) so those stay plain text.
+const FOX_FLOATX_2022_KITS = new Set([
+  '805-05-215-KIT',
+  '805-05-509-KIT',
+  '805-05-510-KIT',
+  '805-05-511-KIT',
+  '805-05-512-KIT',
+  '805-05-545-KIT',
+]);
+function foxDrawingUrl(kit) {
+  if (!/^805-05-\d{3}-KIT$/.test(kit)) return null;
+  const dir = FOX_FLOATX_2022_KITS.has(kit) ? 'page2871-EGZW' : 'page2958-IVPT';
+  return `https://tech.ridefox.com/img/help/${dir}/${kit}.pdf`;
+}
+
 function onTuneChange() {
   const tk = document.getElementById('tuneSel').value;
   const v = currentValve();
@@ -1047,7 +1368,9 @@ function onTuneChange() {
       : t.floatIn
         ? `float window ${t.floatIn}in (drawing stack height incl. spacer/spring hardware, not modeled)`
         : `tune-shim total ${total.toFixed(4)}in`;
-  const noteHtml = `<b>${t.kit}</b> — "${PRODUCTS[curProduct].label}, ${v.label}, ${t.label}". ${heightBit}.`;
+  const dwgUrl = foxDrawingUrl(t.kit);
+  const kitLabel = dwgUrl ? `<a href="${dwgUrl}" target="_blank" rel="noopener noreferrer">${t.kit}</a>` : t.kit;
+  const noteHtml = `<b>${kitLabel}</b> — "${PRODUCTS[curProduct].label}, ${v.label}, ${t.label}". ${heightBit}.`;
   document.getElementById('presetNote').innerHTML = noteHtml;
   showWarn(null);
   pendingStockCapture = true; // capture this stock tune's curve as the target reference
@@ -2596,7 +2919,8 @@ function wireStaticControls() {
     ['clearTargetBtn', 'click', () => clearTarget()],
     ['optBtn', 'click', () => optimizeToTarget()],
     ['clearSuggestionsBtn', 'click', () => clearSuggestions()],
-    ['photoFile', 'change', loadPhotoFile],
+    ['photoFileFront', 'change', loadPhotoFile],
+    ['photoFileBack', 'change', loadPhotoFile],
     ['popoutStackBtn', 'click', () => openPopout('stack', 'popout-stack.html', 520, 480)],
     ['popoutForceBtn', 'click', () => openPopout('force', 'popout-force.html', 620, 480)],
     ['popoutOilBtn', 'click', () => openPopout('oil', 'popout-oil.html', 620, 480)],
@@ -2605,19 +2929,47 @@ function wireStaticControls() {
     ['photoFinishPortBtn', 'click', () => photoFinishPort()],
     ['photoResetBtn', 'click', () => photoReset()],
     ['photoApplyBtn', 'click', () => applyPhotoResult()],
+    ['photoModeToggle', 'change', (e) => setPhotoMode(e.target.checked ? 'manual' : 'auto')],
+    [
+      'photoAdjustBtn',
+      'click',
+      () => {
+        photoAdjusting = !photoAdjusting;
+        updatePhotoUI();
+        drawPhotoCanvas();
+      },
+    ],
+    [
+      'photoApplySetSel',
+      'change',
+      (e) => {
+        photoApplySet = e.target.value;
+        updatePhotoUI();
+      },
+    ],
+    [
+      'photoTabFront',
+      'click',
+      () => {
+        photoActive = 0;
+        updatePhotoUI();
+        drawPhotoCanvas();
+      },
+    ],
+    [
+      'photoTabBack',
+      'click',
+      () => {
+        photoActive = 1;
+        updatePhotoUI();
+        drawPhotoCanvas();
+      },
+    ],
     [
       'photoSnapToggle',
       'change',
       (e) => {
         photoSnapEnabled = e.target.checked;
-      },
-    ],
-    [
-      'photoOtherPorts',
-      'input',
-      (e) => {
-        photoOtherPortsCount = Math.max(0, parseInt(e.target.value, 10) || 0);
-        updatePhotoUI();
       },
     ],
   ];
@@ -2740,7 +3092,7 @@ async function init() {
   new ResizeObserver(() => drawOilChart()).observe(oilChartCanvas.parentElement);
   document.getElementById('photoCanvas').addEventListener('click', photoCanvasClick);
   new ResizeObserver(() => {
-    if (photoImg) drawPhotoCanvas();
+    if (photoEntry()) drawPhotoCanvas();
   }).observe(document.getElementById('photoCanvas'));
 
   // Live recalculation: any edit to an input/select schedules a debounced solve.
