@@ -235,11 +235,14 @@ export function fitCircleRANSAC(points, { iterations = 300, threshold = 2.5, see
 
 // ---- high-level detection ----------------------------------------------------
 
-// Finds the piston's circular outer edge. Tries the piston as the brighter region and,
-// failing that, the darker region; for each takes the largest component (that isn't the
-// whole frame) and RANSAC-fits a circle to its boundary. Returns the more circular /
-// lower-residual of the two, plus `aspect` (min/max bbox side, < 1 => tilted or cropped).
-export function fitOuterCircle(gray, width, height) {
+// Finds the piston's circular outer edge. If `seed` is given (the caller's dragged circle),
+// that is trusted as-is. Otherwise tries the piston as the brighter region and, failing
+// that, the darker region; for each takes the largest sensible component and RANSAC-fits a
+// circle to its boundary, ignoring boundary points that sit on the image frame (clip
+// artefacts when the piston is cropped). Returns the lowest-residual / most-circular fit,
+// plus `aspect` (min/max bbox side, < 1 => tilted or cropped), or null when no rim is visible.
+export function fitOuterCircle(gray, width, height, seed) {
+  if (seed && seed.r > 0) return { cx: seed.cx, cy: seed.cy, r: seed.r, residual: 0, aspect: 1, seeded: true };
   const thr = otsuThreshold(gray);
   const frame = width * height;
   const results = [];
@@ -252,12 +255,15 @@ export function fitOuterCircle(gray, width, height) {
     const bw = big.bbox.maxX - big.bbox.minX + 1;
     const bh = big.bbox.maxY - big.bbox.minY + 1;
     if (big.area < 0.03 * frame) continue;
-    if (bw >= 0.99 * width && bh >= 0.99 * height && big.area > 0.85 * frame) continue; // that's the background
+    // fills the whole frame at very high density => the piston overruns the photo (no edge
+    // to fit) or this is the background; the caller falls back to a manual circle.
+    if (bw >= 0.985 * width && bh >= 0.985 * height && big.area > 0.9 * frame) continue;
     const boundary = componentBoundary(labels, big.id, width, height);
-    const fit = fitCircleRANSAC(boundary, {
-      threshold: Math.max(2, 0.005 * Math.max(width, height)),
-    });
-    if (!fit || !isFinite(fit.r) || fit.r < 0.15 * Math.min(width, height)) continue;
+    const inner = boundary.filter((p) => p.x > 1 && p.y > 1 && p.x < width - 2 && p.y < height - 2);
+    const pts = inner.length > 40 ? inner : boundary;
+    const fit = fitCircleRANSAC(pts, { threshold: Math.max(2, 0.005 * Math.max(width, height)) });
+    if (!fit || !isFinite(fit.r) || fit.r < 0.15 * Math.min(width, height) || fit.r > 1.6 * Math.max(width, height))
+      continue;
     results.push({ ...fit, aspect: Math.min(bw, bh) / Math.max(bw, bh) });
   }
   if (!results.length) return null;
@@ -343,7 +349,7 @@ export function inferPortCount(ports, circle) {
 // an internally-downscaled copy and every returned pixel coordinate is mapped back to
 // full-image space, so the result drops straight into the manual flow's coordinate model
 // (points in the photo's own natural pixels; see photoImageToCanvasPt in app.js).
-export function analysePhoto(imageData, dValveMM, srcToNatural = 1) {
+export function analysePhoto(imageData, dValveMM, srcToNatural = 1, seedCircle = null) {
   if (!(dValveMM > 0)) return { ok: false, warnings: ['Enter D.valve before analysing the photo.'] };
   const grayFull = toGrayLuma(imageData);
   const ds = downscaleGray(grayFull, imageData.width, imageData.height, 1000);
@@ -352,18 +358,27 @@ export function analysePhoto(imageData, dValveMM, srcToNatural = 1) {
   const up = srcToNatural / ds.scale;
   const warnings = [];
 
-  const outer = fitOuterCircle(ds.gray, ds.w, ds.h);
+  const dsSeed = seedCircle ? { cx: seedCircle.cx / up, cy: seedCircle.cy / up, r: seedCircle.r / up } : null;
+  const outer = fitOuterCircle(ds.gray, ds.w, ds.h, dsSeed);
   if (!outer) {
+    // No rim visible - hand back a centred default so the UI can show a draggable circle.
+    const r = 0.46 * Math.min(ds.w, ds.h);
     return {
       ok: false,
-      warnings: ['Could not find the valve outer edge automatically — use Adjust circle or Manual.'],
+      needsCircle: true,
+      fallbackCircle: { cx: (ds.w / 2) * up, cy: (ds.h / 2) * up, r: r * up },
+      warnings: [
+        'Couldn’t find the piston’s outer edge. Drag the 3 dots onto the rim and press “Re-detect”, or use Manual trace mode — the whole piston plus a little margin must be in frame.',
+      ],
     };
   }
   const circle = { cx: outer.cx * up, cy: outer.cy * up, r: outer.r * up };
   const mmPerPx = dValveMM / (2 * circle.r);
-  if (outer.residual > 0.03)
+  if (outer.seeded)
+    warnings.push('Measured against the circle you set — drag the dots and Re-detect if the ports look off.');
+  else if (outer.residual > 0.03)
     warnings.push('The outer-edge fit is loose — check the dashed circle, or use Adjust / Manual.');
-  if (outer.aspect < 0.9)
+  if (!outer.seeded && outer.aspect < 0.9)
     warnings.push('The valve looks tilted or cropped — measurements may be skewed. Shoot straighter or use Manual.');
 
   const dsCircle = { cx: outer.cx, cy: outer.cy, r: outer.r };

@@ -291,6 +291,46 @@ async function run() {
         throw new Error('Photo manual trace: expected valve type mainRebound after applying the rebound set');
       }
 
+      // ---- Recovery: a photo with the piston filling the whole frame (no visible rim)
+      // must still show the image + a draggable circle + Re-detect, not silently do nothing. ----
+      const fillBuf = await (async () => {
+        const p = await browser.newPage();
+        const d = await p.evaluate(() => {
+          const c = document.createElement('canvas');
+          c.width = 400;
+          c.height = 520;
+          const x = c.getContext('2d');
+          x.fillStyle = '#bcbcbc';
+          x.fillRect(0, 0, 400, 520); // metal edge-to-edge
+          x.fillStyle = '#141414';
+          x.beginPath();
+          x.arc(200, 260, 22, 0, 7);
+          x.fill();
+          return c.toDataURL('image/png');
+        });
+        await p.close();
+        return Buffer.from(d.split(',')[1], 'base64');
+      })();
+      await page.locator('#photoModeToggle').uncheck();
+      await page.click('#photoResetBtn');
+      await page.fill('#dValve', '50');
+      await page.dispatchEvent('#dValve', 'input');
+      await page.setInputFiles('#photoFileFront', { name: 'fill.png', mimeType: 'image/png', buffer: fillBuf });
+      await page.waitForFunction(
+        () => getComputedStyle(document.getElementById('photoRedetectBtn')).display !== 'none',
+        null,
+        { timeout: 5000 },
+      );
+      const painted = await page.evaluate(() => {
+        const cv = document.getElementById('photoCanvas');
+        const px = cv.getContext('2d').getImageData((cv.width / 2) | 0, (cv.height / 2) | 0, 1, 1).data;
+        return !(px[3] === 0 || (px[0] === 0 && px[1] === 0 && px[2] === 0));
+      });
+      if (!painted) throw new Error('Photo recovery: the image did not paint for a frame-filling photo');
+      if ((await page.$eval('#photoCanvas', (el) => el.style.display)) !== 'block') {
+        throw new Error('Photo recovery: canvas not shown for a frame-filling photo');
+      }
+
       if (errors.length > 0) throw new Error('Photo measurement console/page errors:\n' + errors.join('\n'));
       await page.close();
     }

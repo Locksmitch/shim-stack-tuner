@@ -498,19 +498,28 @@ function photoEntry() {
   return photos[photoActive] || null;
 }
 function makePhotoEntry(slot, name, img) {
+  // All click/overlay/snap maths work in this "reference" pixel space - the photo scaled so
+  // its longest side is <= 2400px. Keeps a multi-megapixel phone photo from allocating a
+  // canvas the browser refuses (which is what made an upload silently do nothing).
+  const cap = 2400;
+  const scl = Math.min(1, cap / Math.max(img.naturalWidth, img.naturalHeight));
+  const refW = Math.max(1, Math.round(img.naturalWidth * scl));
+  const refH = Math.max(1, Math.round(img.naturalHeight * scl));
   const off = document.createElement('canvas');
-  off.width = img.naturalWidth;
-  off.height = img.naturalHeight;
+  off.width = refW;
+  off.height = refH;
   const octx = off.getContext('2d', { willReadFrequently: true });
-  octx.drawImage(img, 0, 0);
+  octx.drawImage(img, 0, 0, refW, refH);
   return {
     slot,
     name,
     img,
-    offscreenCtx: octx, // full-res, for manual-mode edge snapping
+    refW,
+    refH,
+    offscreenCtx: octx, // reference-res, for analysis input + manual-mode edge snapping
     analysis: null,
     labels: {}, // groupId -> one of PHOTO_LABELS
-    handles: null, // 3 points on the outer circle, for "Adjust circle"
+    handles: null, // 3 points on the outer circle, for "Adjust circle" / re-detect
     manual: {
       step: 'calibrate',
       calibPts: [],
@@ -530,20 +539,20 @@ function hexToRgba(hex, a) {
 function photoCanvasToImagePt(x, y) {
   const e = photoEntry();
   return {
-    x: ((x - photoDrawRect.x) * e.img.naturalWidth) / photoDrawRect.w,
-    y: ((y - photoDrawRect.y) * e.img.naturalHeight) / photoDrawRect.h,
+    x: ((x - photoDrawRect.x) * e.refW) / photoDrawRect.w,
+    y: ((y - photoDrawRect.y) * e.refH) / photoDrawRect.h,
   };
 }
 function photoImageToCanvasPt(pt) {
   const e = photoEntry();
   return {
-    x: photoDrawRect.x + (pt.x * photoDrawRect.w) / e.img.naturalWidth,
-    y: photoDrawRect.y + (pt.y * photoDrawRect.h) / e.img.naturalHeight,
+    x: photoDrawRect.x + (pt.x * photoDrawRect.w) / e.refW,
+    y: photoDrawRect.y + (pt.y * photoDrawRect.h) / e.refH,
   };
 }
 
-// Reads a small full-resolution region around (imgX, imgY) and snaps to the strongest
-// nearby edge (manual mode only), in the photo's natural pixel space.
+// Reads a small region around (imgX, imgY) in reference-pixel space and snaps to the
+// strongest nearby edge (manual mode only).
 function photoSnapPoint(imgX, imgY) {
   const e = photoEntry();
   if (!photoSnapEnabled || !e || !e.offscreenCtx) return { x: imgX, y: imgY };
@@ -551,8 +560,8 @@ function photoSnapPoint(imgX, imgY) {
     pad = 2;
   const x0 = Math.max(0, Math.floor(imgX - radius - pad));
   const y0 = Math.max(0, Math.floor(imgY - radius - pad));
-  const x1 = Math.min(e.img.naturalWidth, Math.ceil(imgX + radius + pad));
-  const y1 = Math.min(e.img.naturalHeight, Math.ceil(imgY + radius + pad));
+  const x1 = Math.min(e.refW, Math.ceil(imgX + radius + pad));
+  const y1 = Math.min(e.refH, Math.ceil(imgY + radius + pad));
   const w = x1 - x0,
     h = y1 - y0;
   if (w <= 2 || h <= 2) return { x: imgX, y: imgY };
@@ -561,56 +570,53 @@ function photoSnapPoint(imgX, imgY) {
   return found ? { x: x0 + found.x, y: y0 + found.y } : { x: imgX, y: imgY };
 }
 
-// Runs the CV pipeline on one photo. Analysis is done on a size-capped copy for speed;
-// analysePhoto maps its results back to the photo's natural pixel space via srcToNatural,
-// so they share the manual flow's coordinate model.
-function runPhotoAnalysis(entry) {
+// Runs the CV pipeline on one photo, working in reference-pixel space (entry.offscreenCtx).
+// `seed`, when given, is a {cx,cy,r} the caller fixed by dragging the circle handles -
+// analysePhoto then measures against that instead of hunting for the edge. Never throws:
+// a CV failure leaves a not-ok analysis so the upload still shows the image + a next step.
+function runPhotoAnalysis(entry, seed) {
   const dValveMM = getFieldMM('dValve');
-  const iw = entry.img.naturalWidth,
-    ih = entry.img.naturalHeight;
-  const s = Math.min(1, 1400 / Math.max(iw, ih));
-  const cw = Math.max(1, Math.round(iw * s)),
-    ch = Math.max(1, Math.round(ih * s));
-  const tmp = document.createElement('canvas');
-  tmp.width = cw;
-  tmp.height = ch;
-  const tctx = tmp.getContext('2d', { willReadFrequently: true });
-  tctx.drawImage(entry.img, 0, 0, cw, ch);
-  entry.analysis = analysePhoto(tctx.getImageData(0, 0, cw, ch), dValveMM, 1 / s);
+  try {
+    const imgData = entry.offscreenCtx.getImageData(0, 0, entry.refW, entry.refH);
+    entry.analysis = analysePhoto(imgData, dValveMM, 1, seed || null);
+  } catch (err) {
+    console.error('Photo analysis failed (non-fatal):', err);
+    entry.analysis = { ok: false, warnings: ['Something went wrong analysing that photo — try Manual trace mode.'] };
+  }
   entry.labels = {};
-  entry.handles = null;
   const a = entry.analysis;
-  if (!a.ok) return;
-  const c = a.circle;
-  entry.handles = [0, 2.0944, 4.1888].map((ang) => ({ x: c.cx + c.r * Math.cos(ang), y: c.cy + c.r * Math.sin(ang) }));
-  const portGroups = a.groups.filter((g) => g.kind !== 'throat').sort((x, y) => x.meanRadiusMM - y.meanRadiusMM);
-  a.groups.forEach((g) => {
-    if (g.kind === 'throat') entry.labels[g.id] = 'throat';
-    else if (portGroups.length === 2 && g.id === portGroups[0].id) entry.labels[g.id] = 'rebound';
-    else entry.labels[g.id] = 'compression';
-  });
+  const handlesFrom = (c) =>
+    [0, 2.0944, 4.1888].map((ang) => ({ x: c.cx + c.r * Math.cos(ang), y: c.cy + c.r * Math.sin(ang) }));
+  if (a.ok) {
+    entry.handles = handlesFrom(a.circle);
+    photoAdjusting = false;
+    const portGroups = a.groups.filter((g) => g.kind !== 'throat').sort((x, y) => x.meanRadiusMM - y.meanRadiusMM);
+    a.groups.forEach((g) => {
+      if (g.kind === 'throat') entry.labels[g.id] = 'throat';
+      else if (portGroups.length === 2 && g.id === portGroups[0].id) entry.labels[g.id] = 'rebound';
+      else entry.labels[g.id] = 'compression';
+    });
+  } else if (a.needsCircle && a.fallbackCircle) {
+    entry.handles = handlesFrom(a.fallbackCircle);
+    photoAdjusting = true; // let the user drag it straight away
+  } else {
+    entry.handles = null;
+  }
 }
 
-// Re-fit the outer circle from the 3 dragged handles and recompute every port's geometry
-// and the bore against the new scale (Adjust circle, auto mode).
-function photoRefitFromHandles(entry) {
-  const fit = circleFrom3Points(entry.handles[0], entry.handles[1], entry.handles[2]);
-  const dValveMM = getFieldMM('dValve');
-  const a = entry.analysis;
-  if (!fit || !(dValveMM > 0) || !a || !a.ok) return;
-  const circle = { cx: fit.center.x, cy: fit.center.y, r: fit.r };
-  const mmPerPx = dValveMM / (2 * fit.r);
-  a.circle = circle;
-  a.mmPerPx = mmPerPx;
-  const center = { x: circle.cx, y: circle.cy };
-  a.groups.forEach((g) => {
-    g.ports.forEach((p) => (p.geom = computePortGeometryFromOutline(center, mmPerPx, p.boundary)));
-    g.meanRadiusMM =
-      (g.ports.reduce((s, p) => s + Math.hypot(p.centroid.x - circle.cx, p.centroid.y - circle.cy), 0) /
-        g.ports.length) *
-      mmPerPx;
-  });
-  if (a.bore) a.dRodMM = 2 * a.bore.r * mmPerPx;
+// Re-run detection for the active photo, seeded by the current handle positions if the user
+// has moved them onto the rim ("Re-detect" button / after Adjust circle).
+function photoRedetect() {
+  const e = photoEntry();
+  if (!e) return;
+  let seed = null;
+  if (e.handles && e.handles.length === 3) {
+    const fit = circleFrom3Points(e.handles[0], e.handles[1], e.handles[2]);
+    if (fit) seed = { cx: fit.center.x, cy: fit.center.y, r: fit.r };
+  }
+  runPhotoAnalysis(e, seed);
+  updatePhotoUI();
+  drawPhotoCanvas();
 }
 
 // Merges every group carrying each label, across both photos, into the final port sets
@@ -763,14 +769,21 @@ function updatePhotoUI() {
   show('photoUndoBtn', manual);
   show('photoFinishPortBtn', manual);
   show('photoAdjustBtn', !!e && !manual);
+  show('photoRedetectBtn', !!e && !manual);
   show('photoApplyRow', !!e);
 
+  const needsCircle = e && e.analysis && !e.analysis.ok && e.analysis.needsCircle;
   const hint = document.getElementById('photoStepHint');
   if (!e) hint.textContent = 'Enter D.valve above, then choose a front photo.';
   else if (manual) hint.textContent = photoManualInstruction(e.manual);
   else if (!e.analysis) hint.textContent = 'Analysing…';
+  else if (needsCircle)
+    hint.textContent =
+      'Drag the 3 yellow dots onto the piston’s outer rim, then press “Re-detect”. Or use Manual trace mode.';
   else if (!e.analysis.ok)
     hint.textContent = e.analysis.warnings[0] || 'Auto-detection failed — try Manual trace mode.';
+  else if (photoAdjusting)
+    hint.textContent = 'Drag the 3 yellow dots to fix the circle on the rim, then press “Re-detect”.';
   else
     hint.textContent =
       'Set each group to compression / rebound / throat / ignore. Click a port on the image to drop it.';
@@ -801,7 +814,7 @@ function updatePhotoUI() {
 
 function drawCircleImg(ctx, c, stroke, dash) {
   const p = photoImageToCanvasPt({ x: c.cx, y: c.cy });
-  const rPx = c.r * (photoDrawRect.w / photoEntry().img.naturalWidth);
+  const rPx = c.r * (photoDrawRect.w / photoEntry().refW);
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1.5;
   ctx.setLineDash(dash || []);
@@ -831,32 +844,38 @@ function drawPhotoCanvas() {
   const cv = document.getElementById('photoCanvas');
   const { ctx, w, h } = setupCanvas(cv);
   ctx.clearRect(0, 0, w, h);
-  const scale = Math.min(w / e.img.naturalWidth, h / e.img.naturalHeight);
-  const dw = e.img.naturalWidth * scale,
-    dh = e.img.naturalHeight * scale;
+  const scale = Math.min(w / e.refW, h / e.refH);
+  const dw = e.refW * scale,
+    dh = e.refH * scale;
   photoDrawRect = { x: (w - dw) / 2, y: (h - dh) / 2, w: dw, h: dh };
   ctx.drawImage(e.img, photoDrawRect.x, photoDrawRect.y, dw, dh);
 
-  if (photoMode === 'auto' && e.analysis && e.analysis.ok) {
+  if (photoMode === 'auto') {
     const a = e.analysis;
-    drawCircleImg(ctx, a.circle, '#eab308', [6, 4]);
-    if (a.bore) drawCircleImg(ctx, a.bore, '#5b6472', []);
-    a.groups.forEach((g) => {
-      const col = PHOTO_COLORS[e.labels[g.id] || 'ignore'];
-      g.ports.forEach((p) =>
-        drawPolyImg(
-          ctx,
-          p.contour,
-          p.excluded ? 'rgba(154,164,178,0.12)' : hexToRgba(col, 0.28),
-          p.excluded ? '#9aa4b2' : col,
-        ),
-      );
-    });
-    if (photoAdjusting && e.handles) {
+    const circle = a && a.ok ? a.circle : null;
+    if (circle) {
+      drawCircleImg(ctx, circle, '#eab308', [6, 4]);
+      if (a.bore) drawCircleImg(ctx, a.bore, '#5b6472', []);
+      a.groups.forEach((g) => {
+        const col = PHOTO_COLORS[e.labels[g.id] || 'ignore'];
+        g.ports.forEach((p) =>
+          drawPolyImg(
+            ctx,
+            p.contour,
+            p.excluded ? 'rgba(154,164,178,0.12)' : hexToRgba(col, 0.28),
+            p.excluded ? '#9aa4b2' : col,
+          ),
+        );
+      });
+    }
+    // the draggable circle: from the handles when adjusting (or when there's no fit yet)
+    if (e.handles && (photoAdjusting || !circle)) {
+      const fit = circleFrom3Points(e.handles[0], e.handles[1], e.handles[2]);
+      if (fit) drawCircleImg(ctx, { cx: fit.center.x, cy: fit.center.y, r: fit.r }, '#eab308', [4, 4]);
       e.handles.forEach((hp) => {
         const q = photoImageToCanvasPt(hp);
         ctx.beginPath();
-        ctx.arc(q.x, q.y, 6, 0, 2 * Math.PI);
+        ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI);
         ctx.fillStyle = '#eab308';
         ctx.fill();
         ctx.strokeStyle = '#1c2430';
@@ -921,8 +940,9 @@ function photoCanvasClick(ev) {
 
   if (photoMode === 'auto') {
     const a = entry.analysis;
-    if (!a || !a.ok) return;
     if (photoAdjusting && entry.handles) {
+      // move the nearest circle handle to the click (snapped to a nearby edge); the circle
+      // isn't re-fit against the image until "Re-detect".
       let bi = 0,
         bd = Infinity;
       entry.handles.forEach((hp, i) => {
@@ -930,20 +950,22 @@ function photoCanvasClick(ev) {
         if (d < bd) ((bd = d), (bi = i));
       });
       entry.handles[bi] = photoSnapPoint(img.x, img.y);
-      photoRefitFromHandles(entry);
-    } else {
-      for (const g of a.groups) {
-        for (const p of g.ports) {
-          if (photoPointInPoly(img, p.contour)) {
-            p.excluded = !p.excluded;
-            updatePhotoUI();
-            drawPhotoCanvas();
-            return;
-          }
-        }
-      }
+      updatePhotoUI();
+      drawPhotoCanvas();
       return;
     }
+    if (!a || !a.ok) return;
+    for (const g of a.groups) {
+      for (const p of g.ports) {
+        if (photoPointInPoly(img, p.contour)) {
+          p.excluded = !p.excluded;
+          updatePhotoUI();
+          drawPhotoCanvas();
+          return;
+        }
+      }
+    }
+    return;
   } else {
     const m = entry.manual;
     const pt = photoSnapPoint(img.x, img.y);
@@ -2939,6 +2961,7 @@ function wireStaticControls() {
         drawPhotoCanvas();
       },
     ],
+    ['photoRedetectBtn', 'click', () => photoRedetect()],
     [
       'photoApplySetSel',
       'change',
