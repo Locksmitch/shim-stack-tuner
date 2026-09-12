@@ -9,7 +9,7 @@ import { drawForceCurve as drawForceCurveVisual } from './js/force-curve-visual.
 import { drawOilChart as drawOilChartVisual, OIL_MIN_TEMP, OIL_MAX_TEMP } from './js/oil-chart-visual.js';
 import { setupCanvas } from './js/canvas-utils.js';
 import { circleFrom3Points, computePortGeometryFromOutline, findStrongestEdgeNear } from './js/photo-measure.js';
-import { analysePhoto } from './js/image-analysis.js';
+import { analyseValvePhoto } from './js/image-analysis.js';
 import { broadcastLiveVisuals } from './js/live-sync.js';
 
 let resultUnit = 'mm'; // display unit for force/velocity/outputs
@@ -471,17 +471,28 @@ function drawPortFaceDiagramInner() {
 
 /* =========================================================
    PHOTO-ASSISTED PORT MEASUREMENT
-   Enter one real dimension - D.valve, the piston outer diameter - then upload a straight-on
-   photo of one or both piston faces. js/image-analysis.js finds the outer edge (pixel->mm
-   scale + centre), the rod bore (D.rod) and the through-hole ports, clustered into radial
-   groups. You label each group compression / rebound / throat / ignore; the tool keeps a
-   compression set and a rebound set (each averaged across both photos' same-labelled groups)
-   and "Apply [set]" writes r/d/w.port + N.port + D.rod + d.thrt/N.thrt + valve type into the
-   geometry fields. "Manual trace mode" keeps the older 3-clicks-on-the-edge then
-   trace-each-port flow (see computePortGeometryFromOutline / findStrongestEdgeNear in
-   photo-measure.js) as a fallback for photos auto-detection can't handle. Points are stored
-   in the PHOTO'S OWN natural pixel space (not canvas px) so the overlay and edge-snap stay
-   anchored if the canvas resizes - photoImageToCanvasPt re-projects at draw time.
+   Lay the valve on a sheet of white paper, shoot it square-on, and type ONE number:
+   D.valve, the outside diameter. js/image-analysis.js does the rest - it treats white as
+   "not valve", so the sheet around the disc and the sheet seen through each port are the
+   same thing to it and are told apart by topology (see that file's header). Back comes the
+   rim (pixel->mm scale + centre, de-skewed for camera tilt), the shaft bore, and every
+   through-hole with its true area, radial extent and arc-width profile.
+
+   Each hole carries its own ROLE - compression / rebound / throat / ignore. Detection seeds
+   them by ring (two port rings on a face = the classic rebound-inside, compression-outside
+   piston) and you fix any it got wrong, either by the ring's dropdown or by clicking a hole
+   on the image to cycle it. "Apply [set]" then writes r/d/w.port + N.port + D.rod + shim ID
+   + d.thrt/N.thrt + valve type.
+
+   w.port is computed as area/d.port, i.e. the radius-averaged arc width, so an oval or
+   peanut port that is fat in the middle reduces to the width that reproduces its real open
+   area - which is what the solver's pressurised area N*w*d needs.
+
+   "Manual trace mode" keeps the older click-the-edge-then-trace-each-port flow (see
+   computePortGeometryFromOutline / findStrongestEdgeNear in photo-measure.js) for photos
+   the automatic path can't handle. Points are stored in the PHOTO'S OWN pixel space (not
+   canvas px) so the overlay and edge-snap stay anchored if the canvas resizes -
+   photoImageToCanvasPt re-projects at draw time.
    ========================================================= */
 const PHOTO_LABELS = ['compression', 'rebound', 'throat', 'ignore'];
 const PHOTO_COLORS = { compression: '#2f6fed', rebound: '#0f9d58', throat: '#eab308', ignore: '#9aa4b2' };
@@ -492,7 +503,7 @@ let photoMode = 'auto'; // 'auto' | 'manual'
 let photoSnapEnabled = true; // manual-mode edge snap
 let photoApplySet = 'compression'; // which stored set "Apply" writes
 let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the active image is drawn
-let photoAdjusting = false; // dragging the outer-circle handles (auto mode)
+let photoShowMask = false; // paint what the detector classified as sheet / valve / hole
 
 function photoEntry() {
   return photos[photoActive] || null;
@@ -518,8 +529,9 @@ function makePhotoEntry(slot, name, img) {
     refH,
     offscreenCtx: octx, // reference-res, for analysis input + manual-mode edge snapping
     analysis: null,
-    labels: {}, // groupId -> one of PHOTO_LABELS
-    handles: null, // 3 points on the outer circle, for "Adjust circle" / re-detect
+    roles: {}, // hole id -> one of PHOTO_LABELS
+    sensitivity: 1, // the white-tolerance slider for this photo
+    maskCanvas: null, // cached render of analysis.preview, for the "show detection" overlay
     manual: {
       step: 'calibrate',
       calibPts: [],
@@ -570,112 +582,149 @@ function photoSnapPoint(imgX, imgY) {
   return found ? { x: x0 + found.x, y: y0 + found.y } : { x: imgX, y: imgY };
 }
 
-// Runs the CV pipeline on one photo, working in reference-pixel space (entry.offscreenCtx).
-// `seed`, when given, is a {cx,cy,r} the caller fixed by dragging the circle handles -
-// analysePhoto then measures against that instead of hunting for the edge. Never throws:
-// a CV failure leaves a not-ok analysis so the upload still shows the image + a next step.
-function runPhotoAnalysis(entry, seed) {
+// Runs the vision pipeline on one photo, working in reference-pixel space
+// (entry.offscreenCtx). Never throws: a failure leaves a not-ok analysis so the upload
+// still shows the image plus a next step instead of appearing to do nothing.
+function runPhotoAnalysis(entry) {
   const dValveMM = getFieldMM('dValve');
   try {
     const imgData = entry.offscreenCtx.getImageData(0, 0, entry.refW, entry.refH);
-    entry.analysis = analysePhoto(imgData, dValveMM, 1, seed || null);
+    entry.analysis = analyseValvePhoto(imgData, dValveMM, { sensitivity: entry.sensitivity });
   } catch (err) {
     console.error('Photo analysis failed (non-fatal):', err);
     entry.analysis = { ok: false, warnings: ['Something went wrong analysing that photo — try Manual trace mode.'] };
   }
-  entry.labels = {};
+  entry.roles = {};
+  entry.maskCanvas = null;
   const a = entry.analysis;
-  const handlesFrom = (c) =>
-    [0, 2.0944, 4.1888].map((ang) => ({ x: c.cx + c.r * Math.cos(ang), y: c.cy + c.r * Math.sin(ang) }));
-  if (a.ok) {
-    entry.handles = handlesFrom(a.circle);
-    photoAdjusting = false;
-    const portGroups = a.groups.filter((g) => g.kind !== 'throat').sort((x, y) => x.meanRadiusMM - y.meanRadiusMM);
-    a.groups.forEach((g) => {
-      if (g.kind === 'throat') entry.labels[g.id] = 'throat';
-      else if (portGroups.length === 2 && g.id === portGroups[0].id) entry.labels[g.id] = 'rebound';
-      else entry.labels[g.id] = 'compression';
-    });
-  } else if (a.needsCircle && a.fallbackCircle) {
-    entry.handles = handlesFrom(a.fallbackCircle);
-    photoAdjusting = true; // let the user drag it straight away
-  } else {
-    entry.handles = null;
-  }
+  if (!a.ok) return;
+  // seed every hole from the role its ring was guessed to be; the user corrects from there
+  for (const g of a.groups) for (const id of g.holeIds) entry.roles[id] = g.suggestedRole;
 }
 
-// Re-run detection for the active photo, seeded by the current handle positions if the user
-// has moved them onto the rim ("Re-detect" button / after Adjust circle).
-function photoRedetect() {
-  const e = photoEntry();
-  if (!e) return;
-  let seed = null;
-  if (e.handles && e.handles.length === 3) {
-    const fit = circleFrom3Points(e.handles[0], e.handles[1], e.handles[2]);
-    if (fit) seed = { cx: fit.center.x, cy: fit.center.y, r: fit.r };
+// Paints analysis.preview into an offscreen canvas once, so toggling "show detection" on
+// and off (and every redraw while it is on) is just a drawImage.
+function photoMaskCanvas(entry) {
+  const a = entry.analysis;
+  if (!a || !a.ok || !a.preview) return null;
+  if (entry.maskCanvas) return entry.maskCanvas;
+  const { width, height, classes } = a.preview;
+  const cv = document.createElement('canvas');
+  cv.width = width;
+  cv.height = height;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(width, height);
+  for (let p = 0, i = 0; p < classes.length; p++, i += 4) {
+    if (classes[p] === 2) {
+      img.data[i] = 234; // hole: amber - the thing the whole tool is looking for
+      img.data[i + 1] = 179;
+      img.data[i + 2] = 8;
+      img.data[i + 3] = 190;
+    } else if (classes[p] === 1) {
+      img.data[i] = 47; // valve body: blue wash
+      img.data[i + 1] = 111;
+      img.data[i + 2] = 237;
+      img.data[i + 3] = 70;
+    } else {
+      img.data[i + 3] = 0; // sheet: leave the photo showing
+    }
   }
-  runPhotoAnalysis(e, seed);
-  updatePhotoUI();
-  drawPhotoCanvas();
+  ctx.putImageData(img, 0, 0);
+  entry.maskCanvas = cv;
+  return cv;
 }
 
-// Merges every group carrying each label, across both photos, into the final port sets
-// plus a throat spec and a D.rod reading.
+function photoHoleRole(entry, hole) {
+  return entry.roles[hole.id] || 'ignore';
+}
+
+// Per-photo, per-role aggregate. Counts stay per photo (front and back show the SAME six
+// ports - averaging their geometry is the point of a second photo, adding their counts
+// would not be), and a ring whose holes all carry one role contributes its inferred count
+// so one port lost to glare doesn't silently drop N.port.
+function photoRoleSets(entry) {
+  const a = entry.analysis;
+  const out = {};
+  if (!a || !a.ok) return out;
+  const counted = new Set();
+  const tally = {};
+  for (const g of a.groups) {
+    const roles = g.holeIds.map((id) => entry.roles[id] || 'ignore');
+    const whole = roles.every((r) => r === roles[0]) ? roles[0] : null;
+    if (whole && whole !== 'ignore') {
+      tally[whole] = (tally[whole] || 0) + Math.max(g.holeIds.length, g.count || 0);
+      g.holeIds.forEach((id) => counted.add(id));
+    }
+  }
+  for (const h of a.holes) {
+    const role = photoHoleRole(entry, h);
+    if (role === 'ignore') continue;
+    if (!out[role]) out[role] = { holes: [], count: 0 };
+    out[role].holes.push(h);
+    if (!counted.has(h.id)) tally[role] = (tally[role] || 0) + 1;
+  }
+  for (const role of Object.keys(out)) {
+    const hs = out[role].holes;
+    const avg = (f) => hs.reduce((s, h) => s + f(h), 0) / hs.length;
+    out[role] = {
+      rPort: avg((h) => h.rPort),
+      dPort: avg((h) => h.dPort),
+      wPort: avg((h) => h.wPort),
+      areaMM: avg((h) => h.areaMM),
+      equivDiaMM: avg((h) => h.equivDiaMM),
+      count: tally[role] || hs.length,
+    };
+  }
+  return out;
+}
+
+// Merges both photos into the final compression / rebound sets, a throat spec and D.rod.
 function resolvePhotoSets() {
   const buckets = { compression: [], rebound: [], throat: [] };
   const dRods = [];
   for (const entry of photos) {
     if (!entry) continue;
-    const auto = photoMode === 'auto' && entry.analysis && entry.analysis.ok;
-    if (auto) {
+    if (photoMode === 'auto') {
+      if (!entry.analysis || !entry.analysis.ok) continue;
       if (entry.analysis.dRodMM) dRods.push(entry.analysis.dRodMM);
-      for (const g of entry.analysis.groups) {
-        const label = entry.labels[g.id] || 'ignore';
-        if (label === 'ignore') continue;
-        const live = g.ports.filter((p) => !p.excluded && p.geom);
-        if (!live.length) continue;
-        const avg = (f) => live.reduce((s, p) => s + f(p.geom), 0) / live.length;
-        buckets[label].push({
-          rPort: avg((x) => x.rPort),
-          dPort: avg((x) => x.dPort),
-          wPort: avg((x) => x.wPort),
-          count: Math.max(live.length, g.suggestedCount || live.length),
-        });
-      }
+      const sets = photoRoleSets(entry);
+      for (const role of Object.keys(sets)) if (buckets[role]) buckets[role].push(sets[role]);
     } else {
       const m = entry.manual;
       if (m && m.ports.length && m.mmPerPx) {
         const label = photoApplySet === 'rebound' ? 'rebound' : 'compression';
-        m.ports.forEach((p) =>
-          buckets[label].push({
-            rPort: p.result.rPort,
-            dPort: p.result.dPort,
-            wPort: p.result.wPort,
-            count: m.ports.length,
-          }),
-        );
+        const avg = (f) => m.ports.reduce((s, p) => s + f(p.result), 0) / m.ports.length;
+        buckets[label].push({
+          rPort: avg((x) => x.rPort),
+          dPort: avg((x) => x.dPort),
+          wPort: avg((x) => x.wPort),
+          count: m.ports.length,
+        });
       }
     }
   }
-  const mergePorts = (arr) => {
+  const merge = (arr) => {
     if (!arr.length) return null;
     const a = (f) => arr.reduce((s, x) => s + f(x), 0) / arr.length;
     return {
       rPort: a((x) => x.rPort),
       dPort: a((x) => x.dPort),
       wPort: a((x) => x.wPort),
+      areaMM: a((x) => x.areaMM || 0),
       nPort: Math.max(...arr.map((x) => x.count)),
     };
   };
   const throat = buckets.throat.length
     ? {
-        dThrt: buckets.throat.reduce((s, x) => s + (x.dPort + x.wPort) / 2, 0) / buckets.throat.length,
+        // a bleed hole is round, so its equivalent-area diameter IS its diameter
+        dThrt:
+          buckets.throat.reduce((s, x) => s + (x.equivDiaMM || (x.dPort + x.wPort) / 2), 0) / buckets.throat.length,
         nThrt: Math.max(...buckets.throat.map((x) => x.count)),
       }
     : null;
   return {
-    compression: mergePorts(buckets.compression),
-    rebound: mergePorts(buckets.rebound),
+    compression: merge(buckets.compression),
+    rebound: merge(buckets.rebound),
     throat,
     dRodMM: dRods.length ? dRods.reduce((s, x) => s + x, 0) / dRods.length : null,
   };
@@ -698,37 +747,66 @@ function photoManualInstruction(m) {
     : `${n} point${n === 1 ? '' : 's'} - keep clicking, or press "Finish this port".`;
 }
 
-// (Re)builds the per-group label rows for the active photo (auto mode only).
+// (Re)builds one row per detected ring for the active photo (auto mode only). The ring is
+// only a bulk-assign convenience - the roles it writes live on the individual holes, which
+// is what lets a single odd port be re-roled by clicking it on the image.
 function renderPhotoGroups() {
   const host = document.getElementById('photoGroups');
   if (!host) return;
   host.innerHTML = '';
   const e = photoEntry();
   if (photoMode !== 'auto' || !e || !e.analysis || !e.analysis.ok) return;
+  const byId = new Map(e.analysis.holes.map((h) => [h.id, h]));
   e.analysis.groups.forEach((g) => {
-    const label = e.labels[g.id] || 'ignore';
-    const live = g.ports.filter((p) => !p.excluded).length;
+    const holes = g.holeIds.map((id) => byId.get(id)).filter(Boolean);
+    if (!holes.length) return;
+    const roles = holes.map((h) => photoHoleRole(e, h));
+    const common = roles.every((r) => r === roles[0]) ? roles[0] : '';
+    const mean = (f) => holes.reduce((s, h) => s + f(h), 0) / holes.length;
     const row = document.createElement('div');
     row.className = 'photo-group-row';
     const dot = document.createElement('span');
     dot.className = 'photo-group-dot';
-    dot.style.background = PHOTO_COLORS[label];
+    dot.style.background = common ? PHOTO_COLORS[common] : 'linear-gradient(90deg,#2f6fed,#0f9d58)';
     const txt = document.createElement('span');
     txt.className = 'photo-group-text';
-    txt.textContent = `${live} port${live === 1 ? '' : 's'} · r≈${fmtLen(g.meanRadiusMM, 'mm')}mm · ${
-      g.kind === 'throat' ? 'small/round' : 'kidney'
-    }`;
+    const missing = (g.count || holes.length) - holes.length;
+    txt.textContent =
+      `${holes.length} hole${holes.length === 1 ? '' : 's'}` +
+      (missing > 0 ? ` (+${missing} inferred)` : '') +
+      ` · r ${fmtLen(
+        mean((h) => h.rPort),
+        'mm',
+      )}–${fmtLen(
+        mean((h) => h.rOuterMM),
+        'mm',
+      )}mm` +
+      ` · w ${fmtLen(
+        mean((h) => h.wPort),
+        'mm',
+      )}mm · ${fmtLen(
+        mean((h) => h.areaMM),
+        'mm',
+      )}mm²`;
     const sel = document.createElement('select');
     sel.className = 'small';
+    if (!common) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = 'Mixed';
+      o.selected = true;
+      sel.appendChild(o);
+    }
     PHOTO_LABELS.forEach((L) => {
       const o = document.createElement('option');
       o.value = L;
       o.textContent = L[0].toUpperCase() + L.slice(1);
-      o.selected = L === label;
+      o.selected = L === common;
       sel.appendChild(o);
     });
     sel.addEventListener('change', () => {
-      e.labels[g.id] = sel.value;
+      if (!sel.value) return;
+      holes.forEach((h) => (e.roles[h.id] = sel.value));
       updatePhotoUI();
       drawPhotoCanvas();
     });
@@ -737,15 +815,25 @@ function renderPhotoGroups() {
   });
 }
 
-function photoSetSummaryText(sets) {
+function photoSetSummaryText(sets, entry) {
+  // The open-area figure is the cross-check: it is N * w.port * d.port, which is exactly the
+  // pressurised area the solver will use, and w.port was derived from the measured area in
+  // the first place - so if this doesn't match what the ports look like, the outlines are wrong.
   const line = (name, s) =>
     s
-      ? `${name}: r.port ${fmtLen(s.rPort, 'mm')} · d.port ${fmtLen(s.dPort, 'mm')} · w.port ${fmtLen(s.wPort, 'mm')} mm · N ${Math.round(s.nPort)}`
+      ? `${name}: r.port ${fmtLen(s.rPort, 'mm')} · d.port ${fmtLen(s.dPort, 'mm')} · w.port ${fmtLen(s.wPort, 'mm')} mm · N ${Math.round(s.nPort)}` +
+        ` · open area ${fmtLen(Math.round(s.nPort) * s.wPort * s.dPort, 'mm')} mm²`
       : `${name}: —`;
   const out = [line('Compression', sets.compression), line('Rebound', sets.rebound)];
   if (sets.throat)
     out.push(`Throat: d.thrt ${fmtLen(sets.throat.dThrt, 'mm')} mm · N ${Math.round(sets.throat.nThrt)}`);
-  if (sets.dRodMM) out.push(`D.rod ≈ ${fmtLen(sets.dRodMM, 'mm')} mm`);
+  if (sets.dRodMM) out.push(`Shaft hole ⌀ ${fmtLen(sets.dRodMM, 'mm')} mm → D.rod + shim ID`);
+  const a = entry && entry.analysis;
+  if (a && a.ok) {
+    const bits = [`${(a.coverage * 100).toFixed(0)}% of the face detected`];
+    if (a.ellipse && a.ellipse.corrected) bits.push(`tilt ${a.ellipse.tiltDeg.toFixed(0)}° corrected`);
+    out.push(`Check: ${bits.join(' · ')}`);
+  }
   return out.join('\n');
 }
 
@@ -768,39 +856,35 @@ function updatePhotoUI() {
   if (snapLabel) snapLabel.style.display = manual ? '' : 'none';
   show('photoUndoBtn', manual);
   show('photoFinishPortBtn', manual);
-  show('photoAdjustBtn', !!e && !manual);
-  show('photoRedetectBtn', !!e && !manual);
+  show('photoDetectRow', !!e && !manual);
   show('photoApplyRow', !!e);
 
-  const needsCircle = e && e.analysis && !e.analysis.ok && e.analysis.needsCircle;
   const hint = document.getElementById('photoStepHint');
   if (!e) hint.textContent = 'Enter D.valve above, then choose a front photo.';
   else if (manual) hint.textContent = photoManualInstruction(e.manual);
   else if (!e.analysis) hint.textContent = 'Analysing…';
-  else if (needsCircle)
-    hint.textContent =
-      'Drag the 3 yellow dots onto the piston’s outer rim, then press “Re-detect”. Or use Manual trace mode.';
-  else if (!e.analysis.ok)
-    hint.textContent = e.analysis.warnings[0] || 'Auto-detection failed — try Manual trace mode.';
-  else if (photoAdjusting)
-    hint.textContent = 'Drag the 3 yellow dots to fix the circle on the rim, then press “Re-detect”.';
+  else if (!e.analysis.ok) hint.textContent = e.analysis.warnings[0] || 'Nothing detected — try Manual trace mode.';
+  else if (!e.analysis.holes.length)
+    hint.textContent = 'No ports found. Drag the white sensitivity slider, or switch to Manual trace mode.';
   else
     hint.textContent =
-      'Set each group to compression / rebound / throat / ignore. Click a port on the image to drop it.';
+      'Set each ring to compression / rebound / throat / ignore — or click a single hole on the image to change just that one.';
 
   const warnEl = document.getElementById('photoWarnings');
   const warns = !manual && e && e.analysis && e.analysis.warnings ? e.analysis.warnings : [];
   warnEl.textContent = warns.join(' ');
   warnEl.style.display = warnEl.textContent ? '' : 'none';
 
-  if (photoAdjusting) document.getElementById('photoAdjustBtn').classList.add('active');
-  else document.getElementById('photoAdjustBtn').classList.remove('active');
+  const sens = document.getElementById('photoSensitivity');
+  if (sens && e) sens.value = String(e.sensitivity);
+  const maskTog = document.getElementById('photoMaskToggle');
+  if (maskTog) maskTog.checked = photoShowMask;
 
   renderPhotoGroups();
 
   const sets = resolvePhotoSets();
   const sum = document.getElementById('photoSummary');
-  sum.textContent = photoCanApply() ? photoSetSummaryText(sets) : '';
+  sum.textContent = photoCanApply() ? photoSetSummaryText(sets, e) : '';
   sum.style.display = sum.textContent ? '' : 'none';
 
   document.getElementById('photoApplyBtn').disabled = !photoCanApply();
@@ -852,37 +936,30 @@ function drawPhotoCanvas() {
 
   if (photoMode === 'auto') {
     const a = e.analysis;
-    const circle = a && a.ok ? a.circle : null;
-    if (circle) {
-      drawCircleImg(ctx, circle, '#eab308', [6, 4]);
-      if (a.bore) drawCircleImg(ctx, a.bore, '#5b6472', []);
-      a.groups.forEach((g) => {
-        const col = PHOTO_COLORS[e.labels[g.id] || 'ignore'];
-        g.ports.forEach((p) =>
-          drawPolyImg(
-            ctx,
-            p.contour,
-            p.excluded ? 'rgba(154,164,178,0.12)' : hexToRgba(col, 0.28),
-            p.excluded ? '#9aa4b2' : col,
-          ),
-        );
-      });
+    if (!a || !a.ok) return;
+    if (photoShowMask) {
+      const mc = photoMaskCanvas(e);
+      if (mc) ctx.drawImage(mc, photoDrawRect.x, photoDrawRect.y, photoDrawRect.w, photoDrawRect.h);
     }
-    // the draggable circle: from the handles when adjusting (or when there's no fit yet)
-    if (e.handles && (photoAdjusting || !circle)) {
-      const fit = circleFrom3Points(e.handles[0], e.handles[1], e.handles[2]);
-      if (fit) drawCircleImg(ctx, { cx: fit.center.x, cy: fit.center.y, r: fit.r }, '#eab308', [4, 4]);
-      e.handles.forEach((hp) => {
-        const q = photoImageToCanvasPt(hp);
-        ctx.beginPath();
-        ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI);
-        ctx.fillStyle = '#eab308';
-        ctx.fill();
-        ctx.strokeStyle = '#1c2430';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      });
-    }
+    drawCircleImg(ctx, a.circle, '#eab308', [6, 4]);
+    if (a.shaft) drawPolyImg(ctx, a.shaft.contour, 'rgba(91,100,114,0.25)', '#5b6472');
+    a.holes.forEach((h, i) => {
+      const role = photoHoleRole(e, h);
+      const col = PHOTO_COLORS[role];
+      drawPolyImg(ctx, h.contour, hexToRgba(col, role === 'ignore' ? 0.1 : 0.28), col);
+      // number each hole so the readout rows and the picture can be matched up
+      const q = photoImageToCanvasPt(h.centroidImg);
+      ctx.fillStyle = '#0b0f14';
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 3;
+      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText(String(i + 1), q.x, q.y);
+      ctx.fillText(String(i + 1), q.x, q.y);
+    });
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
     return;
   }
 
@@ -940,30 +1017,15 @@ function photoCanvasClick(ev) {
 
   if (photoMode === 'auto') {
     const a = entry.analysis;
-    if (photoAdjusting && entry.handles) {
-      // move the nearest circle handle to the click (snapped to a nearby edge); the circle
-      // isn't re-fit against the image until "Re-detect".
-      let bi = 0,
-        bd = Infinity;
-      entry.handles.forEach((hp, i) => {
-        const d = Math.hypot(hp.x - img.x, hp.y - img.y);
-        if (d < bd) ((bd = d), (bi = i));
-      });
-      entry.handles[bi] = photoSnapPoint(img.x, img.y);
+    if (!a || !a.ok) return;
+    // clicking a hole cycles just that hole's role, for the one port a ring got wrong
+    for (const h of a.holes) {
+      if (!photoPointInPoly(img, h.contour)) continue;
+      const cur = photoHoleRole(entry, h);
+      entry.roles[h.id] = PHOTO_LABELS[(PHOTO_LABELS.indexOf(cur) + 1) % PHOTO_LABELS.length];
       updatePhotoUI();
       drawPhotoCanvas();
       return;
-    }
-    if (!a || !a.ok) return;
-    for (const g of a.groups) {
-      for (const p of g.ports) {
-        if (photoPointInPoly(img, p.contour)) {
-          p.excluded = !p.excluded;
-          updatePhotoUI();
-          drawPhotoCanvas();
-          return;
-        }
-      }
     }
     return;
   } else {
@@ -1032,9 +1094,19 @@ function photoUndo() {
 
 function setPhotoMode(mode) {
   photoMode = mode === 'manual' ? 'manual' : 'auto';
-  photoAdjusting = false;
   const e = photoEntry();
   if (e && photoMode === 'auto' && !e.analysis) runPhotoAnalysis(e);
+  updatePhotoUI();
+  drawPhotoCanvas();
+}
+
+// The white-tolerance slider: re-run detection for the active photo only, keeping the
+// other face's answers (and its own slider position) as they were.
+function photoSetSensitivity(v) {
+  const e = photoEntry();
+  if (!e) return;
+  e.sensitivity = Math.max(0.4, Math.min(1.8, Number(v) || 1));
+  runPhotoAnalysis(e);
   updatePhotoUI();
   drawPhotoCanvas();
 }
@@ -1042,7 +1114,7 @@ function setPhotoMode(mode) {
 function photoReset() {
   photos = [];
   photoActive = 0;
-  photoAdjusting = false;
+  photoShowMask = false;
   photoApplySet = 'compression';
   ['photoFileFront', 'photoFileBack'].forEach((id) => {
     const el = document.getElementById(id);
@@ -1071,7 +1143,13 @@ function applyPhotoResult() {
     document.getElementById('nThrt').value = Math.max(1, Math.round(sets.throat.nThrt));
     changed.push('nThrt');
   }
-  if (sets.dRodMM) setMM('dRod', sets.dRodMM);
+  // The shaft hole is both the rod the valve rides on and the hole the shims need to
+  // clear, so it fills D.rod and the shim ID - the two fields a user would otherwise
+  // measure off the same feature with calipers.
+  if (sets.dRodMM) {
+    setMM('dRod', sets.dRodMM);
+    setMM('stackID', sets.dRodMM);
+  }
   const vt = document.getElementById('valveType');
   if (vt.value !== 'base') {
     vt.value = photoApplySet === 'rebound' ? 'mainRebound' : 'mainComp';
@@ -2952,16 +3030,15 @@ function wireStaticControls() {
     ['photoResetBtn', 'click', () => photoReset()],
     ['photoApplyBtn', 'click', () => applyPhotoResult()],
     ['photoModeToggle', 'change', (e) => setPhotoMode(e.target.checked ? 'manual' : 'auto')],
+    ['photoSensitivity', 'change', (e) => photoSetSensitivity(e.target.value)],
     [
-      'photoAdjustBtn',
-      'click',
-      () => {
-        photoAdjusting = !photoAdjusting;
-        updatePhotoUI();
+      'photoMaskToggle',
+      'change',
+      (e) => {
+        photoShowMask = e.target.checked;
         drawPhotoCanvas();
       },
     ],
-    ['photoRedetectBtn', 'click', () => photoRedetect()],
     [
       'photoApplySetSel',
       'change',

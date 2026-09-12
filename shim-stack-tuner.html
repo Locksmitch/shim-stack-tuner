@@ -698,13 +698,22 @@
               <summary class="hint-bubble" aria-label="How to use the photo tool">?</summary>
               <div class="hint-popover">
                 <p>
-                  Enter <b>D.valve</b> (the piston outer diameter) above — that is the only measurement you type. Upload
-                  a straight-on photo of one piston face; the tool finds the outer edge (for scale), the rod bore, and
-                  the through-hole ports, grouped into rings. Set each group to <b>compression</b>, <b>rebound</b>,
-                  <b>throat</b> or <b>ignore</b>, then "Apply" writes r.port / d.port / w.port / N.port / D.rod / d.thrt
-                  / N.thrt and the valve type. Flip the piston and add a <b>back photo</b> to average both faces. If
-                  auto-detection struggles, switch on <b>Manual trace mode</b> to click the edge and trace each port by
-                  hand. Works best straight-on — a steep angle skews the numbers.
+                  <b>Lay the valve on a sheet of white paper</b> and shoot it face-on, with a margin of paper showing all
+                  round. Enter <b>D.valve</b> (the outside diameter) above — that is the only measurement you type.
+                </p>
+                <p>
+                  Anything white is either the sheet or a hole straight through the valve, which is how the tool finds
+                  the rim (for scale), the shaft bore and every port, whatever shape they are — round, oval, peanut or
+                  kidney. Set each detected ring to <b>compression</b>, <b>rebound</b>, <b>throat</b> or <b>ignore</b>
+                  (or click one hole on the image to change just that one), then "Apply" writes r.port / d.port / w.port
+                  / N.port / D.rod / shim ID / d.thrt / N.thrt and the valve type.
+                </p>
+                <p>
+                  w.port comes out as the port's <b>area ÷ radial length</b> — the average width across the port, which
+                  is the honest single number for a port that is fatter in the middle than at its ends. Flip the valve
+                  and add a <b>back photo</b> to average both faces. If the detection misses holes or eats into the body,
+                  drag <b>white sensitivity</b> and tick <b>show detection</b> to see what it is reading; failing that,
+                  <b>Manual trace mode</b> lets you click the edge and trace each port by hand.
                 </p>
               </div>
             </details>
@@ -729,13 +738,25 @@
             </p>
             <div id="photoGroups" style="margin-top: 6px"></div>
             <p class="hint" id="photoSummary" style="white-space: pre-line; display: none"></p>
+            <div class="btnrow" id="photoDetectRow" style="margin-top: 6px; align-items: center; display: none">
+              <label class="live-toggle" style="gap: 6px"
+                >White sensitivity
+                <input
+                  type="range"
+                  id="photoSensitivity"
+                  min="0.4"
+                  max="1.8"
+                  step="0.05"
+                  value="1"
+                  style="width: 130px"
+              /></label>
+              <label class="live-toggle"><input type="checkbox" id="photoMaskToggle" /> 🎭 Show detection</label>
+            </div>
             <div class="btnrow" id="photoModeRow" style="margin-top: 6px; align-items: center; display: none">
               <label class="live-toggle"><input type="checkbox" id="photoModeToggle" /> ✍️ Manual trace mode</label>
               <label class="live-toggle"
                 ><input type="checkbox" id="photoSnapToggle" checked /> 🧲 Snap clicks to the nearest edge</label
               >
-              <button class="small" id="photoAdjustBtn" type="button" style="display: none">Adjust circle</button>
-              <button class="small" id="photoRedetectBtn" type="button" style="display: none">Re-detect</button>
               <button class="small" id="photoUndoBtn" type="button" style="display: none" disabled>Undo</button>
               <button class="small" id="photoFinishPortBtn" type="button" style="display: none" disabled>
                 Finish this port ✓

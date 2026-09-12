@@ -35,11 +35,11 @@ async function loadAndCollectErrors(browser, path) {
   return { page, errors };
 }
 
-// Shared between the synthetic photo generator and the test's expectations: a bright metal
-// disc (R=200px @ 250,250) on a dark surround, a dark center bore, and two concentric rings
-// of dark annular-sector ports drawn the way drawPortFaceDiagramInner draws a port (two arcs
-// joined by straight sides). From this the exact r/d/w.port and D.rod can be hand-computed
-// against the D.valve = 50mm scale (mmPerPx = 50 / (2 * 200) = 0.125).
+// Shared between the synthetic photo generator and the test's expectations, and shaped like
+// the shot the tool asks for: a dark valve disc (R=200px @ 250,250) lying on a WHITE sheet
+// with a margin all round, its bore and two concentric rings of annular-sector ports showing
+// that sheet straight through (ports read white, not dark). From this the exact r/d/w.port
+// and D.rod can be hand-computed against D.valve = 50mm (mmPerPx = 50 / (2 * 200) = 0.125).
 const VALVE_PHOTO = {
   cx: 250,
   cy: 250,
@@ -56,17 +56,18 @@ const VALVE_PHOTO = {
 async function generateSyntheticValvePhoto(browser) {
   const page = await browser.newPage();
   const dataUrl = await page.evaluate((g) => {
+    const PAPER = '#f2f2f2';
     const c = document.createElement('canvas');
     c.width = 500;
     c.height = 500;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#282828';
+    ctx.fillStyle = PAPER; // the sheet
     ctx.fillRect(0, 0, 500, 500);
-    ctx.fillStyle = '#c8c8c8';
+    ctx.fillStyle = '#3c3c3c'; // the valve
     ctx.beginPath();
     ctx.arc(g.cx, g.cy, g.R, 0, 2 * Math.PI);
     ctx.fill();
-    ctx.fillStyle = '#141414';
+    ctx.fillStyle = PAPER; // every hole = the sheet seen through the valve
     ctx.beginPath();
     ctx.arc(g.cx, g.cy, g.boreR, 0, 2 * Math.PI);
     ctx.fill();
@@ -242,12 +243,17 @@ async function run() {
       const wP = await val('#wPort');
       const nP = parseInt(await page.$eval('#nPort', (el) => el.value), 10);
       const dRodV = await val('#dRod');
+      const stackIDV = await val('#stackID');
       const vt = await page.$eval('#valveType', (el) => el.value);
-      // outer ring: rInner 120, rOuter 165, halfAngle 0.14 -> r~15, d~5.6, w~5.8, N=6
-      if (!close(rP, 15, 1.5) || !close(dP, 5.625, 1.5) || !close(wP, 5.78, 1.8) || nP !== 6) {
-        throw new Error(`Photo auto-detect apply: expected r~15 d~5.6 w~5.8 N=6, got r=${rP} d=${dP} w=${wP} N=${nP}`);
+      // outer ring: rInner 120, rOuter 165, halfAngle 0.14 -> r~15, d~5.625, N=6. w.port is
+      // area/d.port, i.e. the arc width at the MEAN radius: 0.28 * 142.5 * 0.125 = 4.99mm.
+      if (!close(rP, 15, 1.0) || !close(dP, 5.625, 1.0) || !close(wP, 4.99, 1.0) || nP !== 6) {
+        throw new Error(`Photo auto-detect apply: expected r~15 d~5.6 w~5.0 N=6, got r=${rP} d=${dP} w=${wP} N=${nP}`);
       }
-      if (!close(dRodV, 2 * 26 * 0.125, 1.5)) throw new Error(`Photo auto-detect: D.rod expected ~6.5, got ${dRodV}`);
+      if (!close(dRodV, 2 * 26 * 0.125, 1.0)) throw new Error(`Photo auto-detect: D.rod expected ~6.5, got ${dRodV}`);
+      if (!close(stackIDV, 2 * 26 * 0.125, 1.0)) {
+        throw new Error(`Photo auto-detect: shim ID should follow the shaft hole (~6.5), got ${stackIDV}`);
+      }
       if (vt !== 'mainComp') throw new Error(`Photo auto-detect: expected valve type mainComp, got "${vt}"`);
 
       // ---- Manual trace fallback: 3 edge clicks + trace the outer ring's top port ----
@@ -291,8 +297,9 @@ async function run() {
         throw new Error('Photo manual trace: expected valve type mainRebound after applying the rebound set');
       }
 
-      // ---- Recovery: a photo with the piston filling the whole frame (no visible rim)
-      // must still show the image + a draggable circle + Re-detect, not silently do nothing. ----
+      // ---- Recovery: a valve shot edge-to-edge with no sheet showing can't be measured by
+      // this method at all, so it must say so plainly (and still paint + offer the sliders /
+      // manual mode) rather than silently doing nothing or inventing a number. ----
       const fillBuf = await (async () => {
         const p = await browser.newPage();
         const d = await p.evaluate(() => {
@@ -301,7 +308,7 @@ async function run() {
           c.height = 520;
           const x = c.getContext('2d');
           x.fillStyle = '#bcbcbc';
-          x.fillRect(0, 0, 400, 520); // metal edge-to-edge
+          x.fillRect(0, 0, 400, 520); // valve edge-to-edge, no paper anywhere
           x.fillStyle = '#141414';
           x.beginPath();
           x.arc(200, 260, 22, 0, 7);
@@ -317,7 +324,10 @@ async function run() {
       await page.dispatchEvent('#dValve', 'input');
       await page.setInputFiles('#photoFileFront', { name: 'fill.png', mimeType: 'image/png', buffer: fillBuf });
       await page.waitForFunction(
-        () => getComputedStyle(document.getElementById('photoRedetectBtn')).display !== 'none',
+        () => {
+          const h = document.getElementById('photoStepHint');
+          return h && /sheet|paper|frame|sensitivity|Manual/i.test(h.textContent);
+        },
         null,
         { timeout: 5000 },
       );
@@ -329,6 +339,9 @@ async function run() {
       if (!painted) throw new Error('Photo recovery: the image did not paint for a frame-filling photo');
       if ((await page.$eval('#photoCanvas', (el) => el.style.display)) !== 'block') {
         throw new Error('Photo recovery: canvas not shown for a frame-filling photo');
+      }
+      if ((await page.$eval('#photoDetectRow', (el) => getComputedStyle(el).display)) === 'none') {
+        throw new Error('Photo recovery: the sensitivity controls should stay available to retry with');
       }
 
       if (errors.length > 0) throw new Error('Photo measurement console/page errors:\n' + errors.join('\n'));
