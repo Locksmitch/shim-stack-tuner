@@ -504,6 +504,7 @@ let photoSnapEnabled = true; // manual-mode edge snap
 let photoApplySet = 'compression'; // which stored set "Apply" writes
 let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the active image is drawn
 let photoShowMask = false; // paint what the detector classified as sheet / valve / hole
+let photoHighlight = null; // hole id under the cursor in the list, drawn emphasised
 
 function photoEntry() {
   return photos[photoActive] || null;
@@ -664,15 +665,26 @@ function photoRoleSets(entry) {
     if (!counted.has(h.id)) tally[role] = (tally[role] || 0) + 1;
   }
   for (const role of Object.keys(out)) {
-    const hs = out[role].holes;
-    const avg = (f) => hs.reduce((s, h) => s + f(h), 0) / hs.length;
+    const all = out[role].holes;
+    // Ports in a set are the same port repeated, and shade can only ever EAT INTO one - it
+    // cannot invent open area. So a port that came out much smaller than its fellows was
+    // measured short, and averaging it in just drags the answer low. Drop those and average
+    // what is left; if every port is equally short (even lighting, uniformly bad) the median
+    // moves with them, nothing is dropped, and the numbers stay honest about it.
+    const areas = [...all.map((h) => h.areaMM)].sort((x, y) => x - y);
+    const med = areas.length ? areas[areas.length >> 1] : 0;
+    const hs = all.length > 2 ? all.filter((h) => h.areaMM >= 0.9 * med) : all;
+    const use = hs.length ? hs : all;
+    const avg = (f) => use.reduce((s, h) => s + f(h), 0) / use.length;
     out[role] = {
       rPort: avg((h) => h.rPort),
       dPort: avg((h) => h.dPort),
       wPort: avg((h) => h.wPort),
       areaMM: avg((h) => h.areaMM),
       equivDiaMM: avg((h) => h.equivDiaMM),
-      count: tally[role] || hs.length,
+      count: tally[role] || all.length,
+      measured: use.length,
+      dropped: all.length - use.length,
     };
   }
   return out;
@@ -712,6 +724,8 @@ function resolvePhotoSets() {
       wPort: a((x) => x.wPort),
       areaMM: a((x) => x.areaMM || 0),
       nPort: Math.max(...arr.map((x) => x.count)),
+      dropped: arr.reduce((s, x) => s + (x.dropped || 0), 0),
+      measured: arr.reduce((s, x) => s + (x.measured || 0), 0),
     };
   };
   const throat = buckets.throat.length
@@ -764,7 +778,7 @@ function renderPhotoGroups() {
     const common = roles.every((r) => r === roles[0]) ? roles[0] : '';
     const mean = (f) => holes.reduce((s, h) => s + f(h), 0) / holes.length;
     const row = document.createElement('div');
-    row.className = 'photo-group-row';
+    row.className = 'photo-group-row photo-ring-row';
     const dot = document.createElement('span');
     dot.className = 'photo-group-dot';
     dot.style.background = common ? PHOTO_COLORS[common] : 'linear-gradient(90deg,#2f6fed,#0f9d58)';
@@ -812,6 +826,48 @@ function renderPhotoGroups() {
     });
     row.append(dot, txt, sel);
     host.appendChild(row);
+
+    // One row per hole underneath. Rings are a guess - two ports that happen to sit at the
+    // same radius land in the same ring however different their jobs are - so every hole
+    // gets its own dropdown and nothing is only reachable through the group.
+    holes.forEach((h) => {
+      const role = photoHoleRole(e, h);
+      const hr = document.createElement('div');
+      hr.className = 'photo-group-row photo-hole-row';
+      const hdot = document.createElement('span');
+      hdot.className = 'photo-group-dot';
+      hdot.style.background = PHOTO_COLORS[role];
+      const htxt = document.createElement('span');
+      htxt.className = 'photo-group-text';
+      htxt.textContent =
+        `#${e.analysis.holes.indexOf(h) + 1} · r ${fmtLen(h.rPort, 'mm')}–${fmtLen(h.rOuterMM, 'mm')}` +
+        ` · w ${fmtLen(h.wPort, 'mm')} · ${fmtLen(h.areaMM, 'mm')}mm²`;
+      const hsel = document.createElement('select');
+      hsel.className = 'small';
+      PHOTO_LABELS.forEach((L) => {
+        const o = document.createElement('option');
+        o.value = L;
+        o.textContent = L[0].toUpperCase() + L.slice(1);
+        o.selected = L === role;
+        hsel.appendChild(o);
+      });
+      hsel.addEventListener('change', () => {
+        e.roles[h.id] = hsel.value;
+        updatePhotoUI();
+        drawPhotoCanvas();
+      });
+      // hovering a row lights that hole up on the image, so #7 is findable at a glance
+      hr.addEventListener('mouseenter', () => {
+        photoHighlight = h.id;
+        drawPhotoCanvas();
+      });
+      hr.addEventListener('mouseleave', () => {
+        photoHighlight = null;
+        drawPhotoCanvas();
+      });
+      hr.append(hdot, htxt, hsel);
+      host.appendChild(hr);
+    });
   });
 }
 
@@ -822,7 +878,8 @@ function photoSetSummaryText(sets, entry) {
   const line = (name, s) =>
     s
       ? `${name}: r.port ${fmtLen(s.rPort, 'mm')} · d.port ${fmtLen(s.dPort, 'mm')} · w.port ${fmtLen(s.wPort, 'mm')} mm · N ${Math.round(s.nPort)}` +
-        ` · open area ${fmtLen(Math.round(s.nPort) * s.wPort * s.dPort, 'mm')} mm²`
+        ` · open area ${fmtLen(Math.round(s.nPort) * s.wPort * s.dPort, 'mm')} mm²` +
+        (s.dropped ? ` (from ${s.measured} clean port${s.measured === 1 ? '' : 's'}; ${s.dropped} shade-clipped)` : '')
       : `${name}: —`;
   const out = [line('Compression', sets.compression), line('Rebound', sets.rebound)];
   if (sets.throat)
@@ -946,7 +1003,8 @@ function drawPhotoCanvas() {
     a.holes.forEach((h, i) => {
       const role = photoHoleRole(e, h);
       const col = PHOTO_COLORS[role];
-      drawPolyImg(ctx, h.contour, hexToRgba(col, role === 'ignore' ? 0.1 : 0.28), col);
+      const lit = photoHighlight === h.id;
+      drawPolyImg(ctx, h.contour, hexToRgba(col, lit ? 0.55 : role === 'ignore' ? 0.1 : 0.28), lit ? '#fff' : col);
       // number each hole so the readout rows and the picture can be matched up
       const q = photoImageToCanvasPt(h.centroidImg);
       ctx.fillStyle = '#0b0f14';

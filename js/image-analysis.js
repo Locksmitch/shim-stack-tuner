@@ -632,16 +632,28 @@ export function refineOuterRadius(gray, width, height, face, r0, opts = {}) {
       else ok = false;
     }
     if (!ok) continue; // this ray leaves the photo - skip it rather than guess
+    let maxG = 0;
+    for (let s = 1; s < nS - 1; s++) {
+      grad[s] = polarity * (prof[s + 1] - prof[s - 1]);
+      if (grad[s] > maxG) maxG = grad[s];
+    }
+    if (maxG <= 0) continue;
+    // The strongest rise on the ray. Simply taking the maximum is right here because two
+    // other guards already cover what would otherwise steal the rim: the +-15% window keeps
+    // the port ring out of the search entirely, and the caller only accepts a second,
+    // narrower pass if it fits BETTER (a pass that drags rays onto port edges shows up at
+    // once as a far worse residual). Cleverer rules were tried - innermost-strong-edge,
+    // requiring sheet-brightness beyond the candidate - and both measured worse on real
+    // degradations than this does, because they misfire exactly where contrast is poor.
     let best = -1;
     let bestG = 0;
     for (let s = 1; s < nS - 1; s++) {
-      grad[s] = polarity * (prof[s + 1] - prof[s - 1]);
       if (grad[s] > bestG) {
         bestG = grad[s];
         best = s;
       }
     }
-    if (best < 1 || bestG <= 0) continue;
+    if (best < 1) continue;
     // Parabola through the three gradient samples straddling the peak: the vertex is the
     // edge to a fraction of a pixel, which is what makes the scale worth trusting.
     let off = 0;
@@ -660,9 +672,20 @@ export function refineOuterRadius(gray, width, height, face, r0, opts = {}) {
   // Drop rays whose edge is weak (glare, a finger, a shadow crossing the rim).
   const medG = median(strengths);
   const keep = hits.filter((h) => h.g >= 0.3 * medG);
-  const fit = fitCircleKasa(keep.length >= 24 ? keep : hits);
+  let used = keep.length >= 24 ? keep : hits;
+  let fit = fitCircleKasa(used);
   if (!fit || !(fit.r > 0)) return null;
-  const used = keep.length >= 24 ? keep : hits;
+  // ...then throw out rays that disagree with the consensus circle. A hard contact shadow
+  // makes the metal/shadow edge vanish on one side, so those rays land on the shadow's outer
+  // boundary instead - a one-sided bulge that would otherwise be read as a camera tilt.
+  const inliers = used.filter((p) => Math.abs(Math.hypot(p.x - fit.cx, p.y - fit.cy) - fit.r) < 0.025 * fit.r);
+  if (inliers.length >= 24 && inliers.length < used.length) {
+    const refit = fitCircleKasa(inliers);
+    if (refit && refit.r > 0) {
+      fit = refit;
+      used = inliers;
+    }
+  }
   let sq = 0;
   for (const p of used) {
     const d = Math.hypot(p.x - fit.cx, p.y - fit.cy) - fit.r;
@@ -676,7 +699,215 @@ export function refineOuterRadius(gray, width, height, face, r0, opts = {}) {
     dcy: fit.cy,
     residual: Math.sqrt(sq / used.length) / fit.r,
     rays: used.length,
+    // the edge points themselves, in IMAGE space - these sit on the true metal/paper edge
+    // rather than on a threshold, so they are the honest input to an ellipse fit
+    points: used.map((p) => face.toImage(p.x, p.y)),
   };
+}
+
+// How much of the way round the rim did we actually get edge points? An ellipse fitted to a
+// partial arc is close to meaningless - it will trade axis ratio against the missing side and
+// report a confident tilt from nothing - so the de-skew only runs when the rim is covered.
+export function rimCoverage(points, center, bins = 36) {
+  if (!points || !points.length) return 0;
+  const hit = new Uint8Array(bins);
+  for (const p of points) {
+    const a = Math.atan2(p.y - center.y, p.x - center.x);
+    hit[Math.min(bins - 1, Math.floor(((a + Math.PI) / (2 * Math.PI)) * bins))] = 1;
+  }
+  return hit.reduce((s, v) => s + v, 0) / bins;
+}
+
+// Least-squares ellipse through points about a KNOWN centre: solve for A,B,C in
+// A.x^2 + B.xy + C.y^2 = 1 (3x3 normal equations, Gaussian elimination - no matrix library
+// needed at this size). Returns the semi-axes and the major axis direction.
+export function fitEllipseFixedCenter(points, center, scale = 1) {
+  if (!points || points.length < 6) return null;
+  let Sxxxx = 0;
+  let Sxxxy = 0;
+  let Sxxyy = 0;
+  let Sxyyy = 0;
+  let Syyyy = 0;
+  let Sxx = 0;
+  let Sxy = 0;
+  let Syy = 0;
+  for (const p of points) {
+    const x = (p.x - center.x) / scale;
+    const y = (p.y - center.y) / scale;
+    const xx = x * x;
+    const yy = y * y;
+    const xy = x * y;
+    Sxxxx += xx * xx;
+    Sxxxy += xx * xy;
+    Sxxyy += xx * yy;
+    Sxyyy += xy * yy;
+    Syyyy += yy * yy;
+    Sxx += xx;
+    Sxy += xy;
+    Syy += yy;
+  }
+  const M = [
+    [Sxxxx, Sxxxy, Sxxyy, Sxx],
+    [Sxxxy, Sxxyy, Sxyyy, Sxy],
+    [Sxxyy, Sxyyy, Syyyy, Syy],
+  ];
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) return null;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      for (let c = col; c < 4; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  const A = M[0][3] / M[0][0];
+  const B = M[1][3] / M[1][1];
+  const C = M[2][3] / M[2][2];
+  // eigenvalues of [[A, B/2],[B/2, C]]; a semi-axis is 1/sqrt(eigenvalue), so the SMALLER
+  // eigenvalue belongs to the MAJOR axis
+  const tr = A + C;
+  const disc = Math.sqrt(Math.max(0, (A - C) * (A - C) + B * B));
+  const l1 = (tr + disc) / 2; // larger  -> minor axis
+  const l2 = (tr - disc) / 2; // smaller -> major axis
+  if (!(l2 > 0) || !(l1 > 0)) return null;
+  const aSemi = scale / Math.sqrt(l2);
+  const bSemi = scale / Math.sqrt(l1);
+  // eigenvector for l2 (the major axis direction)
+  const phi = Math.abs(B) > 1e-12 ? Math.atan2(l2 - A, B / 2) : A <= C ? 0 : Math.PI / 2;
+  return { a: aSemi, b: bSemi, phi, axisRatio: bSemi / aSemi };
+}
+
+/* Ports don't photograph evenly. The valve has thickness, so with the light even slightly
+   off-axis one side of a port is dimmed - by the bore wall, or by the valve's own shadow
+   falling on the paper below - while the other side is bright sheet. Any single threshold
+   cuts the hole off along that shade line, and the outline visibly hugs the shadow instead
+   of the metal edge, which shrinks d.port/w.port on that side.
+
+   So the threshold only has to find a CORE of each hole; this grows that core outward
+   through the shading until it reaches metal. The stopping level is judged per hole from
+   the body immediately around it (glare varies across a face, a global number would not
+   fit every port), and growth is capped so a hole that breaks through into a bright patch
+   of body can't run away across the valve. */
+export function growHolesIntoShade(values, width, height, labels, comps, inDisc, opts = {}) {
+  const capFactor = opts.cap ?? 1.9;
+  const bandOuter = opts.band ?? 7;
+  /* The stopping rule that actually works is an EDGE, not a brightness level. Set the
+     brightness bar low enough to sweep in a shaded side and glare-lit metal clears it too;
+     set it high enough to exclude that glare and the shade is lost. There is no level that
+     does both, because the shaded part of a hole and the lit part of the face genuinely
+     overlap in brightness. What separates them is that a port's rim is a sharp step while
+     shading inside the port is a smooth ramp - so growth flows freely down the ramp and
+     stops dead at the rim. Glare on the face is smooth too, but unreachable: getting there
+     from inside a hole means crossing that rim. */
+  const owner = Int32Array.from(labels);
+  if (!comps.length) return owner;
+
+  const info = new Map();
+  for (const c of comps) info.set(c.id, { area: c.area, cap: c.area * capFactor, vals: [] });
+  for (let i = 0; i < owner.length; i++) {
+    const id = owner[i];
+    if (id >= 0 && info.has(id)) info.get(id).vals.push(values[i]);
+  }
+
+  // What does the metal AROUND this hole look like? Sampled by walking out from the hole and
+  // keeping the band a few pixels clear of it, because the pixels right at the edge are the
+  // shaded ones we are trying to absorb - include them and the reference moves to meet them,
+  // and nothing ever grows. A median-absolute-deviation band then says how far a pixel has to
+  // sit from that local metal level, in EITHER direction, to be hole rather than face.
+  for (const c of comps) {
+    const meta = info.get(c.id);
+    const ring = [];
+    let frontier = [];
+    const seen = new Set();
+    for (let y = c.bbox.minY; y <= c.bbox.maxY; y++) {
+      for (let x = c.bbox.minX; x <= c.bbox.maxX; x++) {
+        const i = y * width + x;
+        if (owner[i] === c.id) (frontier.push(i), seen.add(i));
+      }
+    }
+    for (let step = 1; step <= bandOuter && frontier.length; step++) {
+      const next = [];
+      for (const p of frontier) {
+        const x = p % width;
+        const y = (p / width) | 0;
+        const nb = [];
+        if (x > 0) nb.push(p - 1);
+        if (x < width - 1) nb.push(p + 1);
+        if (y > 0) nb.push(p - width);
+        if (y < height - 1) nb.push(p + width);
+        for (const q of nb) {
+          if (seen.has(q) || !inDisc[q]) continue;
+          seen.add(q);
+          next.push(q);
+          if (step >= 3 && owner[q] < 0) ring.push(values[q]);
+        }
+      }
+      frontier = next;
+    }
+    const m = ring.length ? median(ring) : 0;
+    const mad = ring.length ? median(ring.map((v) => Math.abs(v - m))) : 0;
+    // Generous enough to take in a shaded side of a port; the roundness check after growth
+    // is what stops a hole that finds a way out into the face from keeping the ground.
+    const margin = Math.max(8, 3 * mad);
+    const core = median(meta.vals);
+    meta.floor = Math.min(m + margin, m + 0.35 * Math.max(0, core - m));
+    meta.ceil = m - margin;
+  }
+
+  let frontier = [];
+  for (let i = 0; i < owner.length; i++) if (owner[i] >= 0) frontier.push(i);
+  const grown = new Map(comps.map((c) => [c.id, 0]));
+  // Rounds advance the frontier one pixel at a time, so this has to exceed the widest shade
+  // strip we expect to swallow; the real brake is the per-hole area cap, not this.
+  for (let round = 0; round < (opts.rounds ?? 96) && frontier.length; round++) {
+    const next = [];
+    for (const p of frontier) {
+      const id = owner[p];
+      const meta = info.get(id);
+      if (!meta || grown.get(id) >= meta.cap - meta.area) continue;
+      const x = p % width;
+      const y = (p / width) | 0;
+      const nb = [];
+      if (x > 0) nb.push(p - 1);
+      if (x < width - 1) nb.push(p + 1);
+      if (y > 0) nb.push(p - width);
+      if (y < height - 1) nb.push(p + width);
+      for (const q of nb) {
+        if (owner[q] >= 0 || !inDisc[q]) continue;
+        if (values[q] < meta.floor && values[q] > meta.ceil) continue; // this pixel reads as metal
+        owner[q] = id;
+        grown.set(id, grown.get(id) + 1);
+        next.push(q);
+      }
+    }
+    frontier = next;
+  }
+
+  // Growth is only ever meant to restore a shape the threshold clipped, so it should make a
+  // hole MORE like a clean port, not less. If it made one markedly raggeder it did not find
+  // shade, it found a way out into the face - which is how the centre bore, a circle needing
+  // no growth at all, came back half again too wide. Put those back.
+  const startOf = (map, id) => {
+    for (let i = 0; i < map.length; i++) if (map[i] === id) return i;
+    return -1;
+  };
+  const circularity = (map, id, area) => {
+    const s = startOf(map, id);
+    if (s < 0 || area <= 0) return 0;
+    const per = contourPerimeter(traceContour(map, id, width, height, s));
+    return per > 0 ? (4 * Math.PI * area) / (per * per) : 0;
+  };
+  for (const c of comps) {
+    let after = 0;
+    for (let i = 0; i < owner.length; i++) if (owner[i] === c.id) after++;
+    if (after <= c.area) continue;
+    const before = circularity(labels, c.id, c.area);
+    if (circularity(owner, c.id, after) >= 0.75 * before) continue;
+    for (let i = 0; i < owner.length; i++) if (owner[i] === c.id && labels[i] !== c.id) owner[i] = -1;
+  }
+  return owner;
 }
 
 // ---- per-hole measurement -----------------------------------------------------
@@ -866,35 +1097,67 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   if (disc.area > 0.92 * W * H)
     warnings.push('The valve fills the frame; back off so a border of white paper shows around it.');
 
-  // 3. how the circle is foreshortened -> the face space everything is measured in
-  const ell = ellipseFromRegion(solidLabels, disc.id, W, H);
-  if (!ell) return { ok: false, warnings: ['Could not measure the valve outline — try another photo.'] };
+  // 3. how the circle is foreshortened -> the face space everything is measured in.
+  // The silhouette's moments only SEED this: a contact shadow hugging one side of the valve
+  // joins the silhouette and tips those moments, which would read as a tilt that isn't there
+  // and skew every measurement through the de-skew. The shape is settled below against the
+  // rim's real gradient edge instead, which the shadow cannot move.
+  const seed = ellipseFromRegion(solidLabels, disc.id, W, H);
+  if (!seed) return { ok: false, warnings: ['Could not measure the valve outline — try another photo.'] };
   const wantDeskew = opts.deskew !== false;
-  const q = wantDeskew && ell.axisRatio > 0.75 && ell.axisRatio < 0.997 ? ell.axisRatio : 1;
-  const tiltDeg = (Math.acos(Math.max(-1, Math.min(1, ell.axisRatio))) * 180) / Math.PI;
-  if (ell.axisRatio < 0.75)
+  const useQ = (r) => (wantDeskew && r > 0.75 && r < 0.985 ? r : 1);
+
+  let centre = { x: seed.cx, y: seed.cy };
+  let phi = seed.phi;
+  let q = useQ(seed.axisRatio);
+  let face = makeFaceSpace(centre, phi, q);
+  let rFace = seed.a;
+  let axisRatio = seed.axisRatio;
+  let rimResidual = null;
+  let sharpened = false;
+
+  // 4. sub-pixel rim -> the scale, and a shadow-proof read on the tilt. Two passes: the
+  // first finds the true edge under the seed's guess at the shape, the second re-measures
+  // it with the shape that edge implies.
+  for (let pass = 0; pass < 2; pass++) {
+    const refined = refineOuterRadius(gray, W, H, face, rFace);
+    if (!refined || !(refined.r > 0.5 * rFace) || !(refined.r < 1.6 * rFace)) break;
+    // The second pass exists to REFINE, so take it only if it actually fits better. Narrowing
+    // the search around a corrected radius can sweep a port ring into the window, and then
+    // some rays stop on a port's edge instead of the rim - which shows up immediately as a
+    // far worse circle residual. Keeping the better of the two makes the extra pass strictly
+    // an improvement instead of a gamble.
+    if (pass > 0 && rimResidual != null && refined.residual > rimResidual) break;
+    const c = face.toImage(refined.dcx, refined.dcy);
+    centre = { x: c.x, y: c.y };
+    rFace = refined.r;
+    rimResidual = refined.residual;
+    sharpened = true;
+    if (pass === 0 && wantDeskew && rimCoverage(refined.points, centre) > 0.82) {
+      const fitted = fitEllipseFixedCenter(refined.points, centre, refined.r);
+      if (fitted && fitted.axisRatio > 0.6 && fitted.axisRatio <= 1.02) {
+        axisRatio = Math.min(1, fitted.axisRatio);
+        phi = fitted.phi;
+        q = useQ(axisRatio);
+        rFace = fitted.a;
+      }
+    }
+    face = makeFaceSpace(centre, phi, q);
+    if (q === 1) break; // nothing to re-measure: the second pass would repeat the first
+  }
+  if (!sharpened) warnings.push('Could not sharpen the outer edge; measuring off the silhouette instead.');
+  else if (rimResidual > 0.02)
+    warnings.push('The outer edge reads soft — check the dashed circle sits on the rim, and avoid a hard shadow.');
+
+  const tiltDeg = (Math.acos(Math.max(-1, Math.min(1, axisRatio))) * 180) / Math.PI;
+  if (axisRatio < 0.75)
     warnings.push(
       `That is a steep angle (about ${tiltDeg.toFixed(0)}° off square) — the numbers will be skewed. Shoot straight down on the valve.`,
     );
-  else if (q < 1) warnings.push(`Corrected for a ${tiltDeg.toFixed(0)}° camera tilt.`);
-
-  let face = makeFaceSpace({ x: ell.cx, y: ell.cy }, ell.phi, q);
-
-  // 4. sub-pixel rim -> the scale
-  const r0 = ell.a;
-  let rFace = r0;
-  let rimResidual = null;
-  const refined = refineOuterRadius(gray, W, H, face, r0);
-  if (refined && refined.r > 0.5 * r0 && refined.r < 1.6 * r0) {
-    const c = face.toImage(refined.dcx, refined.dcy);
-    face = makeFaceSpace({ x: c.x, y: c.y }, ell.phi, q);
-    rFace = refined.r;
-    rimResidual = refined.residual;
-    if (refined.residual > 0.02)
-      warnings.push('The outer edge reads soft — check the dashed circle sits on the rim, and avoid a hard shadow.');
-  } else {
-    warnings.push('Could not sharpen the outer edge; measuring off the silhouette instead.');
-  }
+  else if (q < 1)
+    warnings.push(
+      `Corrected for an apparent ${tiltDeg.toFixed(0)}° camera tilt. If the valve WAS square to the camera, that is a shadow round the rim being read as foreshortening — even the lighting and re-shoot.`,
+    );
   const mmPerPx = dValveMM / (2 * rFace);
 
   // 5. the landlocked sheet = through-holes
@@ -924,8 +1187,28 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
     }
   }
 
+  // Whichever pass found them, the threshold only located a CORE of each hole - one side of
+  // a port is usually dimmed by its own bore wall or the valve's shadow. Grow each core out
+  // to the metal so the outline stops tracing the shade line.
+  const inDisc = new Uint8Array(W * H);
+  for (let i = 0; i < inDisc.length; i++) inDisc[i] = solidLabels[i] === disc.id ? 1 : 0;
+  const grownLabels = growHolesIntoShade(values, W, H, labelsForHoles, kept, inDisc);
+  const grownAreas = new Map(kept.map((c) => [c.id, 0]));
+  for (let i = 0; i < grownLabels.length; i++) {
+    const id = grownLabels[i];
+    if (grownAreas.has(id)) grownAreas.set(id, grownAreas.get(id) + 1);
+  }
+  for (let i = 0; i < enclosed.length; i++) enclosed[i] = grownAreas.has(grownLabels[i]) ? 1 : 0;
+  const grewBy = kept.length
+    ? kept.reduce((s, c) => s + grownAreas.get(c.id) / Math.max(1, c.area), 0) / kept.length
+    : 1;
+  if (grewBy > 1.25)
+    warnings.push(
+      `Ports read ${Math.round((grewBy - 1) * 100)}% wider once shading inside them was included — light the valve more evenly if the outlines look off.`,
+    );
+
   const measured = kept
-    .map((c) => measureHole(labelsForHoles, c.id, W, H, face, mmPerPx))
+    .map((c) => measureHole(grownLabels, c.id, W, H, face, mmPerPx))
     .filter(Boolean)
     .filter((h) => h.rOuterMM <= (dValveMM / 2) * 1.02);
 
@@ -952,6 +1235,23 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
     g.suggestedRole = throatish ? 'throat' : 'compression';
     g.count = inferRingCount(g.holes);
   });
+  // Ports on a ring are the same port repeated, so if they come back different sizes the
+  // segmentation lost part of some of them - which is what happens when shade inside a port
+  // is as dark as the metal (you are seeing down the bore, not a shadow on paper, and no
+  // brightness rule can separate the two). Say so rather than quietly under-reporting.
+  for (const g of groups) {
+    if (g.holes.length < 3) continue;
+    const areas = g.holes.map((h) => h.areaMM);
+    const mean = areas.reduce((s, a) => s + a, 0) / areas.length;
+    const sd = Math.sqrt(areas.reduce((s, a) => s + (a - mean) * (a - mean), 0) / areas.length);
+    if (mean > 0 && sd / mean > 0.18) {
+      warnings.push(
+        'Ports on one ring came out different sizes — they should be identical, so shading is eating into some of them. Light the valve more evenly (or from straight above) and re-shoot.',
+      );
+      break;
+    }
+  }
+
   const portRings = groups.filter((g) => g.suggestedRole !== 'throat');
   // Two real port rings on one face is the classic compression-outside / rebound-inside
   // piston; anything else the user labels themselves.
@@ -999,7 +1299,7 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
     warnings,
     // scale + frame
     circle: { cx: face.center.x * up, cy: face.center.y * up, r: rFace * up },
-    ellipse: { axisRatio: ell.axisRatio, phi: ell.phi, tiltDeg, corrected: q < 1 },
+    ellipse: { axisRatio, phi, tiltDeg, corrected: q < 1 },
     mmPerPx: mmPerPx / up,
     rimResidual,
     coverage,

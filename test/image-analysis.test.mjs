@@ -18,6 +18,9 @@ import {
   otsuTwoThresholds,
   dropSpecks,
   areaDispersion,
+  fitEllipseFixedCenter,
+  rimCoverage,
+  growHolesIntoShade,
   analyseValvePhoto,
 } from '../js/image-analysis.js';
 
@@ -234,6 +237,90 @@ describe('measureHole', () => {
     // w*d reproduces the measured open area exactly - that is the point of using area/depth
     assert.ok(Math.abs(m.wPort * m.dPort - m.areaMM) < 1e-6, 'w.port * d.port should equal the measured area');
     assert.ok(m.roundness < 0.95, `a peanut is not round, got ${m.roundness}`);
+  });
+});
+
+describe('fitEllipseFixedCenter / rimCoverage', () => {
+  test('recovers the axes and orientation of a known ellipse', () => {
+    const pts = [];
+    for (let d = 0; d < 360; d += 3) {
+      const t = (d * Math.PI) / 180;
+      pts.push({ x: 200 + 150 * Math.cos(t), y: 120 + 105 * Math.sin(t) }); // ratio 0.7, phi 0
+    }
+    const fit = fitEllipseFixedCenter(pts, { x: 200, y: 120 }, 150);
+    assert.ok(Math.abs(fit.a - 150) < 0.5, `semi-major ${fit.a}`);
+    assert.ok(Math.abs(fit.axisRatio - 0.7) < 0.01, `axis ratio ${fit.axisRatio}`);
+    assert.ok(Math.abs(Math.sin(fit.phi)) < 0.02, `major axis should be horizontal, phi=${fit.phi}`);
+  });
+
+  test('rimCoverage sees a full rim as covered and a half-rim as not', () => {
+    const arc = (from, to) => {
+      const p = [];
+      for (let d = from; d < to; d += 4) {
+        const t = (d * Math.PI) / 180;
+        p.push({ x: 100 * Math.cos(t), y: 100 * Math.sin(t) });
+      }
+      return p;
+    };
+    assert.ok(rimCoverage(arc(0, 360), { x: 0, y: 0 }) > 0.95);
+    assert.ok(rimCoverage(arc(0, 180), { x: 0, y: 0 }) < 0.6);
+  });
+});
+
+describe('growHolesIntoShade', () => {
+  test('takes in a shaded side of a port and stops at the metal', () => {
+    // A 60x40 "valve" patch: metal at 110, and a 24x20 port whose sheet fades from lit (235)
+    // on the right down to dim (140) on the left - the way a real shadow inside a port ramps
+    // rather than steps. Only the bright part was detected; the ramp must get swept in, and
+    // the growth must stop dead at the port's rim rather than running out into the metal.
+    const W = 60;
+    const H = 40;
+    const values = new Float32Array(W * H).fill(110);
+    const inDisc = new Uint8Array(W * H).fill(1);
+    const labels = new Int32Array(W * H).fill(-1);
+    const x0 = 18;
+    const x1 = 42;
+    let core = 0;
+    for (let y = 10; y < 30; y++) {
+      for (let x = x0; x < x1; x++) {
+        const i = y * W + x;
+        const u = (x - x0) / (x1 - 1 - x0); // 0 at the shaded edge, 1 at the lit edge
+        values[i] = 140 + 95 * u;
+        if (values[i] > 200) {
+          labels[i] = 0; // the threshold only caught the bright end
+          core++;
+        }
+      }
+    }
+    const detected = core;
+    const comps = [{ id: 0, area: core, bbox: { minX: 34, minY: 10, maxX: x1 - 1, maxY: 29 } }];
+    const grown = growHolesIntoShade(values, W, H, labels, comps, inDisc);
+    let after = 0;
+    for (let i = 0; i < grown.length; i++) if (grown[i] === 0) after++;
+    assert.ok(after > detected * 1.5, `expected the shaded side to be absorbed: ${detected} -> ${after}`);
+    assert.ok(after <= 20 * 24 * 1.15, `should not spill past the port into the metal: got ${after}`);
+  });
+
+  test('leaves a cleanly-detected hole alone', () => {
+    const W = 40;
+    const H = 40;
+    const values = new Float32Array(W * H).fill(110);
+    const inDisc = new Uint8Array(W * H).fill(1);
+    const labels = new Int32Array(W * H).fill(-1);
+    let core = 0;
+    for (let y = 12; y < 28; y++) {
+      for (let x = 12; x < 28; x++) {
+        const i = y * W + x;
+        values[i] = 230;
+        labels[i] = 0;
+        core++;
+      }
+    }
+    const comps = [{ id: 0, area: core, bbox: { minX: 12, minY: 12, maxX: 27, maxY: 27 } }];
+    const grown = growHolesIntoShade(values, W, H, labels, comps, inDisc);
+    let after = 0;
+    for (let i = 0; i < grown.length; i++) if (grown[i] === 0) after++;
+    assert.equal(after, core, 'a hole with no shade around it must not grow');
   });
 });
 

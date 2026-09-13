@@ -600,6 +600,14 @@ footer {
   width: auto;
   flex: 0 0 auto;
 }
+.photo-hole-row {
+  padding-left: 18px;
+  opacity: 0.92;
+}
+.photo-hole-row:hover {
+  background: var(--panel2, rgba(127, 127, 127, 0.08));
+  border-radius: 4px;
+}
 #photoAdjustBtn.active {
   background: var(--accent);
   color: #fff;

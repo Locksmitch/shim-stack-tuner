@@ -219,15 +219,35 @@ async function run() {
       await page.fill('#dValve', '50');
       await page.dispatchEvent('#dValve', 'input');
       await page.setInputFiles('#photoFileFront', { name: 'front.png', mimeType: 'image/png', buffer: pngBuffer });
-      await page.waitForFunction(() => document.querySelectorAll('#photoGroups .photo-group-row').length >= 2, null, {
+      await page.waitForFunction(() => document.querySelectorAll('#photoGroups .photo-ring-row').length >= 2, null, {
         timeout: 5000,
       });
 
-      // group rows come back inner-ring-first; label inner rebound, outer compression.
-      const selects = page.locator('#photoGroups .photo-group-row select');
+      // ring rows come back inner-ring-first; label inner rebound, outer compression.
+      const selects = page.locator('#photoGroups .photo-ring-row select');
       await selects.nth(0).selectOption('rebound');
       await selects.nth(1).selectOption('compression');
       await page.waitForTimeout(50);
+
+      // every hole also gets its own dropdown, so a port the ring grouping lumped in with
+      // the wrong set can still be separated
+      const holeRows = page.locator('#photoGroups .photo-hole-row');
+      const holeCount = await holeRows.count();
+      if (holeCount !== 10) throw new Error(`Photo: expected a row per hole (4+6), got ${holeCount}`);
+      // pull one hole out of the compression set on its own, then put it back
+      const nComp = () => page.$eval('#photoSummary', (el) => Number(/Compression:.*N (\d+)/.exec(el.textContent)[1]));
+      const before = await nComp();
+      await holeRows.last().locator('select').selectOption('ignore');
+      await page.waitForTimeout(60);
+      const after = await nComp();
+      if (after !== before - 1) {
+        throw new Error(
+          `Photo per-hole role: expected N ${before} -> ${before - 1} after ignoring one hole, got ${after}`,
+        );
+      }
+      await holeRows.last().locator('select').selectOption('compression');
+      await page.waitForTimeout(60);
+      if ((await nComp()) !== before) throw new Error('Photo per-hole role: re-labelling one hole did not restore N');
 
       const summary = await page.textContent('#photoSummary');
       if (!/Compression: r\.port/.test(summary) || !/Rebound: r\.port/.test(summary)) {
