@@ -23,6 +23,10 @@ import {
   growHolesIntoShade,
   recoverRingShape,
   consensusGeometry,
+  fitPortCircle,
+  splitByAreaFamily,
+  fitIlluminationSurface,
+  flattenIllumination,
   analyseValvePhoto,
 } from '../js/image-analysis.js';
 
@@ -323,6 +327,82 @@ describe('growHolesIntoShade', () => {
     let after = 0;
     for (let i = 0; i < grown.length; i++) if (grown[i] === 0) after++;
     assert.equal(after, core, 'a hole with no shade around it must not grow');
+  });
+});
+
+describe('fitPortCircle', () => {
+  const arcPlusChord = (r, frac) => {
+    const pts = [];
+    const half = Math.PI * frac; // the visible arc, centred on the bottom
+    for (let a = Math.PI / 2 - half; a <= Math.PI / 2 + half; a += 0.02) {
+      pts.push({ x: 200 + r * Math.cos(a), y: 150 + r * Math.sin(a) });
+    }
+    // the shade line closing it off: a straight chord between the arc's ends
+    const a0 = pts[0];
+    const a1 = pts[pts.length - 1];
+    for (let t = 0; t <= 1; t += 0.02) {
+      pts.push({ x: a1.x + (a0.x - a1.x) * t, y: a1.y + (a0.y - a1.y) * t });
+    }
+    return pts;
+  };
+
+  test('recovers the whole circle from a crescent - the arc outvotes the chord', () => {
+    const fit = fitPortCircle(arcPlusChord(60, 0.42));
+    assert.ok(fit, 'expected a circle');
+    assert.ok(Math.abs(fit.r - 60) < 1.5, `radius ${fit.r} vs 60`);
+    assert.ok(Math.abs(fit.cx - 200) < 1.5 && Math.abs(fit.cy - 150) < 1.5, 'centre off');
+  });
+
+  test('refuses a sector port, whose outline is not one circle', () => {
+    // two concentric arcs joined by radial sides - a kidney/sector, not a round hole
+    const pts = [];
+    for (let a = -0.2; a <= 0.2; a += 0.01) {
+      pts.push({ x: 100 * Math.cos(a), y: 100 * Math.sin(a) });
+      pts.push({ x: 160 * Math.cos(a), y: 160 * Math.sin(a) });
+    }
+    for (let r = 100; r <= 160; r += 2) {
+      pts.push({ x: r * Math.cos(-0.2), y: r * Math.sin(-0.2) });
+      pts.push({ x: r * Math.cos(0.2), y: r * Math.sin(0.2) });
+    }
+    assert.equal(fitPortCircle(pts), null, 'a sector must not be completed as a circle');
+  });
+});
+
+describe('splitByAreaFamily', () => {
+  const mk = (areas) => areas.map((areaMM, id) => ({ id, areaMM }));
+
+  test('separates six big ports from three small ones', () => {
+    const fams = splitByAreaFamily(mk([11.4, 11.6, 11.8, 11.9, 11.7, 11.8, 4.6, 5.1, 4.3]));
+    assert.equal(fams.length, 2);
+    const sizes = fams.map((f) => f.length).sort();
+    assert.deepEqual(sizes, [3, 6]);
+  });
+
+  test('does NOT split a single family that shade has clipped unevenly', () => {
+    // the same six ports, three of them measured short because shadow ate into them
+    const fams = splitByAreaFamily(mk([11.4, 11.6, 11.8, 6.9, 7.0, 6.8]));
+    assert.equal(fams.length, 1, 'clipped ports are the same port, not a second family');
+  });
+
+  test('leaves a small ring alone - two clipped ports agree as readily as two real ones', () => {
+    assert.equal(splitByAreaFamily(mk([11.5, 11.6, 4.5, 4.4])).length, 1);
+  });
+});
+
+describe('illumination flattening', () => {
+  test('levels a sheet lit brightly on one side, so one threshold fits both', () => {
+    const W = 300;
+    const H = 200;
+    const raw = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) raw[y * W + x] = 90 + 150 * (x / W); // 90 on the left, 240 on the right
+    }
+    const surface = fitIlluminationSurface(raw, W, H);
+    assert.ok(surface, 'expected a fitted surface');
+    const flat = flattenIllumination(raw, W, H, surface);
+    const left = flat[100 * W + 10];
+    const right = flat[100 * W + W - 10];
+    assert.ok(Math.abs(left - right) < 12, `still uneven after flattening: ${left} vs ${right}`);
   });
 });
 

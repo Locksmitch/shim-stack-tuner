@@ -160,27 +160,131 @@ export function otsuThreshold(values) {
   return thr;
 }
 
+/* One brightness threshold for the whole photo assumes the sheet is lit evenly, and it never
+   is - a lamp to one side, or a lightbox under the valve, leaves the far side of the paper
+   dimmer than the near side by more than the gap between paper and valve. Then no threshold
+   exists that keeps the dim paper OUT of the valve: on a backlit shot the shaded half of the
+   sheet joined the silhouette, dragged the rim and the scale with it, and turned a
+   square-on valve into "39 degrees of tilt" that was then duly corrected out of it.
+
+   The border of the frame is sheet by assumption (it is already trusted for the colour
+   reference), so the lighting across it can be measured and extrapolated: fit a gentle
+   quadratic to those border pixels and divide it out. One round of outlier rejection keeps
+   something dark intruding at one edge from tipping the fit. */
+export function fitIlluminationSurface(values, width, height, band = 0.06) {
+  const bw = Math.max(3, Math.round(band * Math.min(width, height)));
+  const sx = 2 / width;
+  const sy = 2 / height;
+  const samples = [];
+  const stride = Math.max(1, Math.round(Math.min(width, height) / 400));
+  for (let y = 0; y < height; y += stride) {
+    const edgeRow = y < bw || y >= height - bw;
+    for (let x = 0; x < width; x += stride) {
+      if (!edgeRow && x >= bw && x < width - bw) continue;
+      samples.push({ u: x * sx - 1, v: y * sy - 1, z: values[y * width + x] });
+    }
+  }
+  if (samples.length < 60) return null;
+
+  const basis = (u, v) => [1, u, v, u * u, u * v, v * v];
+  const solve = (pts) => {
+    const n = 6;
+    const A = Array.from({ length: n }, () => new Float64Array(n + 1));
+    for (const p of pts) {
+      const b = basis(p.u, p.v);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) A[i][j] += b[i] * b[j];
+        A[i][n] += b[i] * p.z;
+      }
+    }
+    for (let col = 0; col < n; col++) {
+      let piv = col;
+      for (let r = col + 1; r < n; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+      if (Math.abs(A[piv][col]) < 1e-9) return null;
+      [A[col], A[piv]] = [A[piv], A[col]];
+      for (let r = 0; r < n; r++) {
+        if (r === col) continue;
+        const f = A[r][col] / A[col][col];
+        for (let c = col; c <= n; c++) A[r][c] -= f * A[col][c];
+      }
+    }
+    return Array.from({ length: n }, (_, i) => A[i][n] / A[i][i]);
+  };
+
+  let coef = solve(samples);
+  if (!coef) return null;
+  const evalAt = (c, u, v) => basis(u, v).reduce((s, b, i) => s + b * c[i], 0);
+  // drop the darkest outliers (something resting at the frame edge) and fit again
+  const resid = samples.map((p) => p.z - evalAt(coef, p.u, p.v));
+  const med = median(resid);
+  const mad = median(resid.map((r) => Math.abs(r - med))) || 1;
+  const keep = samples.filter((p, i) => resid[i] > med - 2.5 * mad);
+  if (keep.length > 60) coef = solve(keep) || coef;
+  return { coef, sx, sy, at: (x, y) => evalAt(coef, x * sx - 1, y * sy - 1) };
+}
+
+// Divide the lighting back out, so a single threshold means the same thing everywhere.
+export function flattenIllumination(values, width, height, surface) {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < height; y += 8) {
+    for (let x = 0; x < width; x += 8) {
+      const s = surface.at(x, y);
+      if (s > 1) {
+        sum += s;
+        n++;
+      }
+    }
+  }
+  if (!n) return values;
+  const target = sum / n;
+  const out = new Float32Array(values.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const s = surface.at(x, y);
+      // clamped so a wild extrapolation into a corner cannot blow a pixel up
+      const gain = s > 1 ? Math.max(0.5, Math.min(2, target / s)) : 1;
+      out[i] = Math.min(255, values[i] * gain);
+    }
+  }
+  return out;
+}
+
 // 1 = "this pixel is the sheet" (background OR seen through a hole). `sensitivity` is the
 // UI slider: >1 is more willing to call a dim pixel paper (use it when ports read grey
 // because the valve is thick and shades its own holes), <1 is stricter (use it when a
 // bright valve face is being eaten away).
 export function classifyPaper({ data, width, height }, ref, opts = {}) {
   const sensitivity = opts.sensitivity ?? 1;
-  const values = new Float32Array(width * height);
+  const raw = new Float32Array(width * height);
   const sats = new Float32Array(width * height);
-  for (let p = 0, i = 0; p < values.length; p++, i += 4) {
+  for (let p = 0, i = 0; p < raw.length; p++, i += 4) {
     const { v, s } = valueSat(data, i);
-    values[p] = v;
+    raw[p] = v;
     sats[p] = s;
   }
+  // Flatten the lighting first, so one threshold means the same thing across the whole sheet.
+  // Everything downstream uses these levelled values too, so the hole passes inherit it.
+  let values = raw;
+  let flattened = false;
+  if (opts.flatten !== false) {
+    const surface = fitIlluminationSurface(raw, width, height);
+    if (surface) {
+      values = flattenIllumination(raw, width, height, surface);
+      flattened = true;
+    }
+  }
+  const refV = flattened ? median(Array.from({ length: 400 }, (_, k) => values[(k * 997) % values.length])) : ref.v;
   // Otsu proposes the split; the sheet reference bounds how far it may wander (a photo
   // that is nearly all paper, or nearly all valve, makes Otsu's split meaningless).
   const base = otsuThreshold(values);
-  const vThr = Math.max(0.3 * ref.v, Math.min(0.95 * ref.v, base / Math.max(0.2, sensitivity)));
+  const guide = Math.max(refV, ref.v);
+  const vThr = Math.max(0.3 * guide, Math.min(0.95 * guide, base / Math.max(0.2, sensitivity)));
   const sThr = Math.min(0.92, ref.s + 0.2 * sensitivity + 0.06);
   const mask = new Uint8Array(width * height);
   for (let p = 0; p < mask.length; p++) mask[p] = values[p] >= vThr && sats[p] <= sThr ? 1 : 0;
-  return { mask, vThr, sThr, values };
+  return { mask, vThr, sThr, values, flattened };
 }
 
 // ---- topology -----------------------------------------------------------------
@@ -511,6 +615,26 @@ export function fitCircleKasa(points) {
   const vc = (Suu * f - Suv * e) / det;
   const r = Math.sqrt(uc * uc + vc * vc + (Suu + Svv) / n);
   return { cx: uc + mx, cy: vc + my, r };
+}
+
+// Boundary pixels of one labelled region, thinned to a manageable number of points. Used to
+// fit the valve's edge by consensus, where anything dark stuck to the valve gets outvoted.
+export function discOutline(labels, id, width, height, maxPoints = 1200) {
+  const pts = [];
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      if (labels[i] !== id) continue;
+      if (labels[i - 1] === id && labels[i + 1] === id && labels[i - width] === id && labels[i + width] === id)
+        continue;
+      pts.push({ x, y });
+    }
+  }
+  if (pts.length <= maxPoints) return pts;
+  const step = pts.length / maxPoints;
+  const out = [];
+  for (let k = 0; k < maxPoints; k++) out.push(pts[Math.floor(k * step)]);
+  return out;
 }
 
 // Second moments of a labelled region -> the equivalent uniform ellipse (centre, semi-
@@ -1408,13 +1532,61 @@ export function groupHolesByRadius(holes, rOuterMM) {
     cur.push(sorted[i]);
   }
   groups.push(cur);
-  return groups.map((g, i) => ({
-    id: `ring${i}`,
-    holes: g,
-    meanRadiusMM: g.reduce((s, h) => s + h.rMidMM, 0) / g.length,
-    meanAreaMM: g.reduce((s, h) => s + h.areaMM, 0) / g.length,
-    meanRoundness: g.reduce((s, h) => s + h.roundness, 0) / g.length,
-  }));
+
+  /* Radius alone does not say which holes are the same hole. A piston commonly carries two
+     different ports on ONE ring - six compression and three rebound, say, alternating at
+     much the same radius - and treating that as a single family is actively harmful: the
+     pooling below would hand the small ones the big one's shape. Their SIZES separate
+     cleanly though, so split a ring wherever the sorted areas jump by half again. */
+  return groups
+    .flatMap((g) => splitByAreaFamily(g))
+    .map((g, i) => ({
+      id: `ring${i}`,
+      holes: g,
+      meanRadiusMM: g.reduce((s, h) => s + h.rMidMM, 0) / g.length,
+      meanAreaMM: g.reduce((s, h) => s + h.areaMM, 0) / g.length,
+      meanRoundness: g.reduce((s, h) => s + h.roundness, 0) / g.length,
+    }));
+}
+
+/* Split one ring at the largest jump in hole size - but only when both halves then look like
+   families in their own right.
+
+   The jump alone is not enough to go on, because shade produces jumps of the same size: a
+   port clipped to 60% of itself sits 1.7x below its unclipped neighbour, which is exactly
+   the ratio that separates two genuinely different ports. Splitting on that would tear a
+   single family in half and hand each half to the recovery code as a separate port, which
+   measured 7mm wrong on the shaded test photos.
+
+   What tells them apart is the same principle the rest of this file leans on: identical
+   ports measure identically. Two real families are each internally consistent; a pile of
+   shade-clipped leftovers is all over the place. So propose the cut, then only take it if
+   both sides hold together. */
+export function splitByAreaFamily(holes, minRatio = 1.8, maxSpread = 0.12) {
+  if (holes.length < 6) return [holes]; // a family needs 3 a side to be recognisable as one
+  const sorted = [...holes].sort((a, b) => a.areaMM - b.areaMM);
+  let cutAt = -1;
+  let best = minRatio;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1].areaMM;
+    const ratio = prev > 1e-9 ? sorted[i].areaMM / prev : Infinity;
+    if (ratio > best) {
+      best = ratio;
+      cutAt = i;
+    }
+  }
+  // Three a side, because two clipped ports agree with each other as readily as two real
+  // ones do, and a 1.8x gap, because clipping a port to 60% of itself only makes 1.7x.
+  if (cutAt < 3 || sorted.length - cutAt < 3) return [holes];
+  const spread = (arr) => {
+    const m = arr.reduce((s, h) => s + h.areaMM, 0) / arr.length;
+    if (!(m > 0)) return Infinity;
+    return Math.sqrt(arr.reduce((s, h) => s + (h.areaMM - m) * (h.areaMM - m), 0) / arr.length) / m;
+  };
+  const lo = sorted.slice(0, cutAt);
+  const hi = sorted.slice(cutAt);
+  if (spread(lo) > maxSpread || spread(hi) > maxSpread) return [holes];
+  return [...splitByAreaFamily(lo, minRatio, maxSpread), ...splitByAreaFamily(hi, minRatio, maxSpread)];
 }
 
 // Ports on a ring are evenly spaced, so the median angular step says how many there are
@@ -1496,9 +1668,32 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   let centre = { x: seed.cx, y: seed.cy };
   let phi = seed.phi;
   let q = useQ(seed.axisRatio);
-  let face = makeFaceSpace(centre, phi, q);
   let rFace = seed.a;
   let axisRatio = seed.axisRatio;
+
+  /* Moments describe the blob they are given, and the blob is not always just the valve:
+     anything dark that touches it joins it - the valve's own cast shadow, a dark edge of the
+     lightbox, whatever else is on the bench. Then the moments describe valve-plus-junk, and
+     a round valve reads as a steep ellipse (a backlit shot with a dark band in one corner
+     came out "39 degrees of tilt" and had that duly corrected out of it).
+
+     A circle fitted by consensus to the silhouette's outline does not care: the valve's own
+     edge is the one thing most of those points agree on, and an attached blob is outvoted.
+     Take that when it fits better than the moments do, and let the rays and the ellipse fit
+     below refine it from there. */
+  const outline = discOutline(solidLabels, disc.id, W, H);
+  const byConsensus = outline.length >= 24 ? fitCircleRANSAC(outline, { tolFrac: 0.02, iterations: 400 }) : null;
+  if (byConsensus && byConsensus.arc > 0.8 && byConsensus.inlierFrac > 0.6) {
+    const momentsFitWorse = seed.axisRatio < 0.93 || byConsensus.inlierFrac > 0.9;
+    if (momentsFitWorse) {
+      centre = { x: byConsensus.cx, y: byConsensus.cy };
+      phi = 0;
+      q = 1;
+      rFace = byConsensus.r;
+      axisRatio = 1;
+    }
+  }
+  let face = makeFaceSpace(centre, phi, q);
   let rimResidual = null;
   let sharpened = false;
 
