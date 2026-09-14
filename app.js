@@ -922,7 +922,9 @@ function updatePhotoUI() {
   show('photoApplyRow', !!e);
 
   const hint = document.getElementById('photoStepHint');
-  if (!e) hint.textContent = 'Enter D.valve above, then choose a front photo.';
+  if (!e)
+    hint.textContent =
+      'Enter D.valve above, then choose a front photo. Backlighting the valve (over a lightbox, a tablet showing white, or a window) gives much the best results.';
   else if (manual) hint.textContent = photoManualInstruction(e.manual);
   else if (!e.analysis) hint.textContent = 'Analysing…';
   else if (!e.analysis.ok) hint.textContent = e.analysis.warnings[0] || 'Nothing detected — try Manual trace mode.';

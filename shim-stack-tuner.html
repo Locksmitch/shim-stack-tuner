@@ -698,8 +698,15 @@
               <summary class="hint-bubble" aria-label="How to use the photo tool">?</summary>
               <div class="hint-popover">
                 <p>
-                  <b>Lay the valve on a sheet of white paper</b> and shoot it face-on, with a margin of paper showing all
-                  round. Enter <b>D.valve</b> (the outside diameter) above — that is the only measurement you type.
+                  <b>Backlight it if you can</b> — valve on a sheet of paper over a lightbox, a tablet showing a white
+                  screen, or a window. The ports light up, the valve goes black, and every hole is measured directly. On
+                  a real piston that gave six ports agreeing to 1.4% with no guesswork anywhere.
+                </p>
+                <p>
+                  Otherwise lay it on white paper and shoot it face-on, with a margin of paper showing all round. Light
+                  it as evenly as you can: a thick valve lit from one side shades the inside of its own ports, and the
+                  tool then has to reconstruct what the shadow hid. Enter <b>D.valve</b> (the outside diameter) above —
+                  that is the only measurement you type.
                 </p>
                 <p>
                   Anything white is either the sheet or a hole straight through the valve, which is how the tool finds
@@ -711,9 +718,12 @@
                 <p>
                   w.port comes out as the port's <b>area ÷ radial length</b> — the average width across the port, which
                   is the honest single number for a port that is fatter in the middle than at its ends. Flip the valve
-                  and add a <b>back photo</b> to average both faces. If the detection misses holes or eats into the body,
-                  drag <b>white sensitivity</b> and tick <b>show detection</b> to see what it is reading; failing that,
-                  <b>Manual trace mode</b> lets you click the edge and trace each port by hand.
+                  and add a <b>back photo</b> to average both faces. Where shadow hides part of a port, the tool rebuilds
+                  it from the other ports on the same ring (they are the same port repeated) and draws that part
+                  <b>dashed</b>, telling you how much it actually saw — untick <b>pool each ring</b> to see the raw
+                  measurements instead. If it misses holes or eats into the body, drag <b>white sensitivity</b> and tick
+                  <b>show detection</b> to see what it is reading; failing that, <b>Manual trace mode</b> lets you click
+                  the edge and trace each port by hand.
                 </p>
               </div>
             </details>
@@ -734,7 +744,8 @@
             <canvas id="photoCanvas" style="height: 360px; cursor: crosshair; display: none"></canvas>
             <p class="hint" id="photoWarnings" style="margin-top: 6px; color: var(--warn); display: none"></p>
             <p class="hint" id="photoStepHint" style="margin-top: 6px">
-              Enter D.valve above, then choose a front photo.
+              Enter D.valve above, then choose a front photo. Backlighting the valve (over a lightbox, a tablet showing
+              white, or a window) gives much the best results.
             </p>
             <div id="photoGroups" style="margin-top: 6px"></div>
             <p class="hint" id="photoSummary" style="white-space: pre-line; display: none"></p>
