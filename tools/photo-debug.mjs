@@ -33,7 +33,9 @@ const OUT = path.join(ROOT, 'scratch', 'debug');
 
 const [imgArg, dValveArg] = process.argv.slice(2);
 if (!imgArg || !dValveArg) {
-  console.error('usage: npm run photo:debug -- <image> <D.valve mm>\n' + '   eg: npm run photo:debug -- scratch/valve-front.jpg 46');
+  console.error(
+    'usage: npm run photo:debug -- <image> <D.valve mm>\n' + '   eg: npm run photo:debug -- scratch/valve-front.jpg 46',
+  );
   process.exit(1);
 }
 const imgPath = path.resolve(ROOT, imgArg);
@@ -146,6 +148,8 @@ try {
             widthOuter: h.widthOuter,
             angularSpan: h.angularSpan,
             pixels: h.pixels,
+            circleFit: h.circleFit || null,
+            completedFrom: h.completedFrom || null,
           })),
         };
       },
@@ -169,8 +173,12 @@ try {
         `de-skew ${a.ellipse.corrected ? 'APPLIED' : 'not applied'}`,
     );
     say(`face         ${fmt(a.coverage * 100, 1)}% of the rim circle detected as valve`);
-    say(`sheet        value ${fmt(a.paper.v, 1)}  sat ${fmt(a.paper.s, 3)}  paper threshold ${fmt(a.paper.threshold, 1)}`);
-    say(`shaft        ${a.dRodMM ? `D.rod ${fmt(a.dRodMM)} mm (roundness ${fmt(a.shaft.roundness, 3)})` : 'NOT FOUND'}`);
+    say(
+      `sheet        value ${fmt(a.paper.v, 1)}  sat ${fmt(a.paper.s, 3)}  paper threshold ${fmt(a.paper.threshold, 1)}`,
+    );
+    say(
+      `shaft        ${a.dRodMM ? `D.rod ${fmt(a.dRodMM)} mm (roundness ${fmt(a.shaft.roundness, 3)})` : 'NOT FOUND'}`,
+    );
     say('');
     say(`${a.holes.length} holes, ${a.groups.length} ring(s)`);
     for (const g of a.groups) {
@@ -212,6 +220,29 @@ try {
       );
     }
     say('');
+    say('');
+    say('circle completion (the "a fifth of a circle tells you the rest" rule):');
+    for (const h of a.holes) {
+      const c = h.circleFit;
+      if (!c) {
+        say('  #' + h.n + ' not attempted');
+        continue;
+      }
+      say(
+        '  #' +
+          pad(h.n, 3) +
+          (c.ok ? 'COMPLETED' : 'rejected ') +
+          '  inliers ' +
+          fmt(c.inlierFrac, 2) +
+          '  arc ' +
+          fmt(c.arc, 2) +
+          '  resid ' +
+          fmt(c.residual, 3) +
+          '  ' +
+          (c.why || ''),
+      );
+    }
+    say('');
     a.warnings.forEach((w) => say('warning: ' + w));
   }
 
@@ -219,7 +250,14 @@ try {
   // lot, the outlines are threshold-bound and no amount of averaging will settle them.
   say('');
   say('sensitivity sweep (white-tolerance slider):');
-  say(pad('slider', 9) + pad('holes', 7) + pad('rim r px', 10) + pad('mean w.port', 13) + pad('mean area', 11) + 'coverage');
+  say(
+    pad('slider', 9) +
+      pad('holes', 7) +
+      pad('rim r px', 10) +
+      pad('mean w.port', 13) +
+      pad('mean area', 11) +
+      'coverage',
+  );
   for (const s of [0.6, 0.8, 1.0, 1.2, 1.5]) {
     const r = s === 1 ? a : await run(s);
     if (!r.ok) {
@@ -233,7 +271,8 @@ try {
         pad(fmt(r.circle.r, 1), 10) +
         pad(fmt(r.holes.reduce((x, h) => x + h.wPort, 0) / n, 3), 13) +
         pad(fmt(r.holes.reduce((x, h) => x + h.areaMM, 0) / n, 2), 11) +
-        fmt(r.coverage * 100, 1) + '%',
+        fmt(r.coverage * 100, 1) +
+        '%',
     );
   }
   await run(1); // leave window.__dbg holding the default-sensitivity result for the renders
@@ -275,6 +314,11 @@ try {
         if (res.shaft) strokePoly(x, res.shaft.contour, '#5b6472', 3);
         res.holes.forEach((h, i) => {
           strokePoly(x, h.contour, '#2f6fed', 3);
+          if (h.recoveredContour) {
+            x.setLineDash([12, 8]);
+            strokePoly(x, h.recoveredContour, '#ff3b30', 4);
+            x.setLineDash([]);
+          }
           x.font = 'bold 34px system-ui, sans-serif';
           x.textAlign = 'center';
           x.textBaseline = 'middle';
@@ -308,8 +352,9 @@ try {
 
       // per-hole crops at 4x - the ones that show whether the outline is on the edge
       out.holes = res.holes.map((h) => {
-        const xs = h.contour.map((p) => p.x);
-        const ys = h.contour.map((p) => p.y);
+        const all = h.recoveredContour ? h.contour.concat(h.recoveredContour) : h.contour;
+        const xs = all.map((p) => p.x);
+        const ys = all.map((p) => p.y);
         const padPx = 22;
         const x0 = Math.max(0, Math.floor(Math.min(...xs) - padPx));
         const y0 = Math.max(0, Math.floor(Math.min(...ys) - padPx));
@@ -321,13 +366,23 @@ try {
         c.height = (y1 - y0) * z;
         const x = c.getContext('2d');
         x.imageSmoothingEnabled = false;
-        x.drawImage(img, 0, 0, refW, refH, -x0 * z, -y0 * z, refW * z, refH * z);
+        x.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, -x0 * z, -y0 * z, refW * z, refH * z);
         strokePoly(
           x,
           h.contour.map((p) => ({ x: (p.x - x0) * z, y: (p.y - y0) * z })),
-          'rgba(255,60,60,0.95)',
+          'rgba(60,120,255,0.95)',
           2,
         );
+        if (h.recoveredContour) {
+          x.setLineDash([10, 7]);
+          strokePoly(
+            x,
+            h.recoveredContour.map((p) => ({ x: (p.x - x0) * z, y: (p.y - y0) * z })),
+            'rgba(255,60,60,0.95)',
+            3,
+          );
+          x.setLineDash([]);
+        }
         return c.toDataURL('image/png');
       });
       return out;

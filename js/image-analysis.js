@@ -359,6 +359,9 @@ export function connectedComponents(binary, width, height) {
     let area = 0;
     let sx = 0;
     let sy = 0;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
     let minX = width;
     let minY = height;
     let maxX = -1;
@@ -372,6 +375,9 @@ export function connectedComponents(binary, width, height) {
       area++;
       sx += x;
       sy += y;
+      sxx += x * x;
+      syy += y * y;
+      sxy += x * y;
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -382,7 +388,26 @@ export function connectedComponents(binary, width, height) {
       if (y < height - 1 && binary[p + width] && labels[p + width] < 0)
         ((labels[p + width] = id), stack.push(p + width));
     }
-    comps.push({ id, area, centroid: { x: sx / area, y: sy / area }, bbox: { minX, minY, maxX, maxY } });
+    // Second moments come along almost free here, and they give elongation - the one number
+    // that separates a port from a layer line on a 3D-printed face or a machining groove.
+    // A bounding box will not do it: those lines often run diagonally, so their boxes are
+    // large and square while the line itself is one pixel wide.
+    const cx = sx / area;
+    const cy = sy / area;
+    const mxx = sxx / area - cx * cx;
+    const myy = syy / area - cy * cy;
+    const mxy = sxy / area - cx * cy;
+    const tr = mxx + myy;
+    const det = Math.sqrt(Math.max(0, (mxx - myy) * (mxx - myy) + 4 * mxy * mxy));
+    const l1 = (tr + det) / 2;
+    const l2 = (tr - det) / 2;
+    comps.push({
+      id,
+      area,
+      centroid: { x: cx, y: cy },
+      bbox: { minX, minY, maxX, maxY },
+      elongation: l2 > 1e-9 ? Math.sqrt(l1 / l2) : Infinity,
+    });
   }
   return { labels, comps };
 }
@@ -1004,6 +1029,109 @@ export function measureHole(labels, id, width, height, face, mmPerPx, opts = {})
   };
 }
 
+/* ---- completing a port from the arc of it that is visible -----------------------
+   A thick valve shows you the wall of its own bore. Looking down a port at anything but dead
+   square, one side of it is the lit floor of the hole and the other is that wall in shade -
+   and the wall reads as dark as the body, so the threshold cuts the port in half and traces
+   a crescent. The give-away is WHICH boundary is which: the crescent's curved side is the
+   real port rim, with valve FACE on the other side of it, while the straight side is an
+   internal shade line with more hole (the dark wall) behind it.
+
+   So the test for "is this stretch of outline a real edge" is not how strong the step is -
+   the shade line is often the stronger step of the two - but what is on the far side of it.
+   Face means edge; anything much darker or brighter than the face means we are still inside
+   the hole.
+
+   Keep only the real-edge points and a circle through them is the whole port, which is the
+   user's observation that a fifth of a circle is enough to know the rest of it. Applied only
+   when the arc really does fit a circle, so a kidney or sector port is left alone. */
+
+// Consensus circle: sample three outline points many times, keep the circle the most points
+// agree with, refit on those. The arc outvotes the chord, so no photometric test is needed -
+// which matters, because the photometric one does not work. On a printed or machined face the
+// "what does the valve look like" reference varies so much (texture, ribs, glare) that any
+// tolerance wide enough to cover the face also covers the bore wall: tried on a real photo it
+// called ~100% of every outline a real rim and completed nothing. Deterministic, so the
+// tool gives the same answer twice.
+export function fitCircleRANSAC(points, opts = {}) {
+  const n = points.length;
+  if (n < 12) return null;
+  const iterations = opts.iterations ?? 240;
+  let rng = (opts.seed ?? 1) >>> 0 || 1;
+  const rand = () => (rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const pick = () => points[(rand() * n) | 0];
+
+  let cx0 = 0;
+  let cy0 = 0;
+  for (const p of points) {
+    cx0 += p.x;
+    cy0 += p.y;
+  }
+  cx0 /= n;
+  cy0 /= n;
+  let spread = 0;
+  for (const p of points) spread = Math.max(spread, Math.hypot(p.x - cx0, p.y - cy0));
+  const tol = Math.max(1.5, (opts.tolFrac ?? 0.04) * spread);
+
+  let best = null;
+  let bestCount = -1;
+  for (let it = 0; it < iterations; it++) {
+    const c = circleFromThree(pick(), pick(), pick());
+    if (!c || !isFinite(c.r) || c.r <= 0 || c.r > 6 * spread) continue;
+    let count = 0;
+    for (const p of points) if (Math.abs(Math.hypot(p.x - c.cx, p.y - c.cy) - c.r) < tol) count++;
+    if (count > bestCount) {
+      bestCount = count;
+      best = c;
+    }
+  }
+  if (!best) return null;
+  const inliers = points.filter((p) => Math.abs(Math.hypot(p.x - best.cx, p.y - best.cy) - best.r) < tol);
+  if (inliers.length < 12) return null;
+  const fit = fitCircleKasa(inliers) || best;
+  let sq = 0;
+  for (const p of inliers) {
+    const d = Math.hypot(p.x - fit.cx, p.y - fit.cy) - fit.r;
+    sq += d * d;
+  }
+  const bins = 48;
+  const hit = new Uint8Array(bins);
+  for (const p of inliers) {
+    const a = Math.atan2(p.y - fit.cy, p.x - fit.cx);
+    hit[Math.min(bins - 1, Math.floor(((a + Math.PI) / (2 * Math.PI)) * bins))] = 1;
+  }
+  return {
+    cx: fit.cx,
+    cy: fit.cy,
+    r: fit.r,
+    residual: fit.r > 0 ? Math.sqrt(sq / inliers.length) / fit.r : 1,
+    inlierFrac: inliers.length / n,
+    arc: hit.reduce((s, v) => s + v, 0) / bins,
+  };
+}
+
+function circleFromThree(a, b, c) {
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+  if (Math.abs(d) < 1e-9) return null;
+  const aa = a.x * a.x + a.y * a.y;
+  const bb = b.x * b.x + b.y * b.y;
+  const cc = c.x * c.x + c.y * c.y;
+  const cx = (aa * (b.y - c.y) + bb * (c.y - a.y) + cc * (a.y - b.y)) / d;
+  const cy = (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x)) / d;
+  return { cx, cy, r: Math.hypot(a.x - cx, a.y - cy) };
+}
+
+// A port counts as circular only if a solid majority of its outline agrees on one circle,
+// over a decent sweep of it. A kidney or sector port fails both tests and is left alone.
+export function fitPortCircle(contour, opts = {}) {
+  const fit = fitCircleRANSAC(contour, opts);
+  if (!fit) return null;
+  if (fit.residual > (opts.maxResidual ?? 0.05)) return null;
+  if (fit.arc < (opts.minArc ?? 0.3)) return null;
+  if (fit.inlierFrac < (opts.minInliers ?? 0.45)) return null;
+  return fit;
+}
+
 /* ---- recovering a port that shadow ate part of ---------------------------------
    There is a hard floor to reading a port off its own pixels: where the shade inside it is
    as dark as the metal, the edge simply is not in the picture, and no threshold, gradient or
@@ -1422,8 +1550,14 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   const enclosed = new Uint8Array(W * H);
   for (let i = 0; i < enclosed.length; i++) enclosed[i] = paper[i] && !outside[i] && solidLabels[i] === disc.id ? 1 : 0;
   const { labels: holeLabels, comps: holeComps } = connectedComponents(enclosed, W, H);
-  const minHoleArea = Math.max(24, 0.00004 * W * H);
-  let kept = dropSpecks(holeComps.filter((c) => c.area >= minHoleArea));
+  // Size the smallest believable hole against the VALVE, not the photo frame: a port is a
+  // meaningful fraction of the face however the shot was cropped. And throw out anything
+  // long and thin, which on a 3D-printed or machined face means a layer line or a tool mark
+  // catching the light - the rebound face of a printed piston produced 364 of them.
+  const discAreaPx = Math.PI * rFace * rFace;
+  const minHoleArea = Math.max(24, 0.00035 * discAreaPx);
+  const isPortShaped = (c) => c.area >= minHoleArea && c.elongation <= 4;
+  let kept = dropSpecks(holeComps.filter(isPortShaped));
   let labelsForHoles = holeLabels;
 
   // Shaded ports: thresholding the disc's own interior can see holes the sheet test can't.
@@ -1434,7 +1568,7 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   const local = detectHolesInDisc(values, W, H, solidLabels, disc.id, minHoleArea);
   const localOk = local && local.comps.length && local.brightFraction < 0.45 && local.contrast > 0.12;
   if (localOk) {
-    const localKept = dropSpecks(local.comps);
+    const localKept = dropSpecks(local.comps.filter(isPortShaped));
     const better = !kept.length || areaDispersion(localKept) < areaDispersion(kept) - 0.05;
     if (better) {
       kept = localKept;
@@ -1468,7 +1602,59 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   const measured = kept
     .map((c) => measureHole(grownLabels, c.id, W, H, face, mmPerPx))
     .filter(Boolean)
-    .filter((h) => h.rOuterMM <= (dValveMM / 2) * 1.02);
+    // A port has to have sealing land outside it, so nothing that reaches the very edge of
+    // the valve is one. What does live out there is the bright highlight along a chamfered
+    // rim, which is landlocked by the body and so passes every topological test - it arrives
+    // as a crowd of thin slivers hugging the edge.
+    .filter((h) => h.rOuterMM <= (dValveMM / 2) * 0.95);
+
+  // Complete any hole whose visible outline is an arc of a circle (see fitPortCircle). This
+  // is what rescues a thick valve shot slightly off-square, where every port is traced as the
+  // lit crescent of itself and the bore wall behind the shade line is lost to the body.
+  if (opts.completeCircles !== false) {
+    const byId = new Map(kept.map((c) => [c.id, c]));
+    for (const h of measured) {
+      const comp = byId.get(h.id);
+      if (!comp) continue;
+      const inFace = h.contour.map((p) => face.toFace(p.x, p.y));
+      h.circleFit = { ok: false, pts: inFace.length };
+      const fit = fitPortCircle(inFace);
+      if (!fit) {
+        h.circleFit.why = 'outline does not agree on a circle';
+        continue;
+      }
+      Object.assign(h.circleFit, { arc: fit.arc, residual: fit.residual, inlierFrac: fit.inlierFrac });
+      const areaMM = Math.PI * fit.r * fit.r * mmPerPx * mmPerPx;
+      if (areaMM < h.areaMM * 1.15) {
+        h.circleFit.why = `circle no bigger (${areaMM.toFixed(1)} vs ${h.areaMM.toFixed(1)}mm2)`;
+        continue;
+      }
+      const rc = Math.hypot(fit.cx, fit.cy);
+      if ((rc + fit.r) * mmPerPx > (dValveMM / 2) * 0.95) {
+        h.circleFit.why = 'circle runs past the rim';
+        continue;
+      }
+      h.circleFit.ok = true;
+      const dPort = 2 * fit.r * mmPerPx;
+      h.completedFrom = { arc: fit.arc, inlierFrac: fit.inlierFrac, residual: fit.residual, wasAreaMM: h.areaMM };
+      h.rPort = (rc - fit.r) * mmPerPx;
+      h.rOuterMM = (rc + fit.r) * mmPerPx;
+      h.rMidMM = rc * mmPerPx;
+      h.dPort = dPort;
+      h.areaMM = areaMM;
+      h.wPort = areaMM / dPort;
+      h.equivDiaMM = dPort;
+      h.roundness = 1;
+      h.widthInner = 0;
+      h.widthMax = dPort;
+      h.widthOuter = 0;
+      h.centroidFace = { x: fit.cx, y: fit.cy };
+      h.recoveredContour = Array.from({ length: 72 }, (_, k) => {
+        const t = (k / 72) * 2 * Math.PI;
+        return face.toImage(fit.cx + fit.r * Math.cos(t), fit.cy + fit.r * Math.sin(t));
+      });
+    }
+  }
 
   // 6. the shaft hole: round, and on the centre by definition
   let shaft = null;
@@ -1501,21 +1687,26 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   if (opts.pool !== false) {
     const src = { labels: grownLabels, width: W, height: H, face };
     for (const g of groups) {
-      if (g.holes.length < 3) continue;
+      // A hole already completed from its own arc is settled - and better settled than
+      // pooling could manage, since pooling assumes every port on the ring is the same port.
+      // That assumption breaks on a face carrying two sizes of port at the same radius, where
+      // pooling would hand the small ones the big one's shape.
+      const poolable = g.holes.filter((h) => !h.completedFrom);
+      if (poolable.length < 3) continue;
       // Only pool a ring that disagrees with itself. If its ports already measure the same,
       // there is nothing hidden to recover and pooling can only add its own bias - and worse,
       // if the de-skew is off (a contact shadow faking a tilt) the ports are no longer truly
       // congruent, so combining them inflates the shape. Leave a self-consistent ring alone.
-      const areas = g.holes.map((h) => h.areaMM);
+      const areas = poolable.map((h) => h.areaMM);
       const mean = areas.reduce((s, a) => s + a, 0) / areas.length;
       const sd = Math.sqrt(areas.reduce((s, a) => s + (a - mean) * (a - mean), 0) / areas.length);
       if (!(mean > 0) || sd / mean < 0.08) continue;
-      const shape = recoverRingShape(g.holes, src);
+      const shape = recoverRingShape(poolable, src);
       if (!shape) continue;
       const geom = consensusGeometry(shape, mmPerPx);
       if (!geom || !(geom.areaMM > 0)) continue;
-      const strays = shape.outliers.filter((id) => g.holes.some((h) => h.id === id));
-      for (const h of g.holes) {
+      const strays = shape.outliers.filter((id) => poolable.some((h) => h.id === id));
+      for (const h of poolable) {
         const p = shape.per.get(h.id);
         const odd = strays.includes(h.id);
         h.measuredOnly = {
@@ -1531,12 +1722,12 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
         Object.assign(h, geom);
         h.recoveredContour = consensusContour(shape, Math.atan2(h.centroidFace.y, h.centroidFace.x), face, 1);
       }
-      g.pooled = { from: g.holes.length - strays.length, of: g.holes.length, strays };
+      g.pooled = { from: poolable.length - strays.length, of: poolable.length, strays };
       if (strays.length)
         warnings.push(
           `${strays.length} hole${strays.length === 1 ? '' : 's'} on one ring ${strays.length === 1 ? 'is' : 'are'} a different shape from the rest — left as measured, check the outline${strays.length === 1 ? '' : 's'}.`,
         );
-      const worst = Math.min(...g.holes.filter((h) => h.pooled).map((h) => h.seenFraction ?? 1));
+      const worst = Math.min(...poolable.filter((h) => h.pooled).map((h) => h.seenFraction ?? 1));
       if (isFinite(worst) && worst < 0.85)
         warnings.push(
           `Shadow hid part of some ports (as little as ${Math.round(worst * 100)}% of one was visible); their shape was reconstructed from the other ports on the same ring.`,
