@@ -505,6 +505,7 @@ let photoApplySet = 'compression'; // which stored set "Apply" writes
 let photoDrawRect = null; // {x,y,w,h} in canvas CSS px - where the active image is drawn
 let photoShowMask = false; // paint what the detector classified as sheet / valve / hole
 let photoHighlight = null; // hole id under the cursor in the list, drawn emphasised
+let photoPool = true; // pool each ring into one shape (see recoverRingShape in image-analysis)
 
 function photoEntry() {
   return photos[photoActive] || null;
@@ -590,7 +591,7 @@ function runPhotoAnalysis(entry) {
   const dValveMM = getFieldMM('dValve');
   try {
     const imgData = entry.offscreenCtx.getImageData(0, 0, entry.refW, entry.refH);
-    entry.analysis = analyseValvePhoto(imgData, dValveMM, { sensitivity: entry.sensitivity });
+    entry.analysis = analyseValvePhoto(imgData, dValveMM, { sensitivity: entry.sensitivity, pool: photoPool });
   } catch (err) {
     console.error('Photo analysis failed (non-fatal):', err);
     entry.analysis = { ok: false, warnings: ['Something went wrong analysing that photo — try Manual trace mode.'] };
@@ -788,6 +789,7 @@ function renderPhotoGroups() {
     txt.textContent =
       `${holes.length} hole${holes.length === 1 ? '' : 's'}` +
       (missing > 0 ? ` (+${missing} inferred)` : '') +
+      (g.pooled ? ` · one shape pooled from ${g.pooled.from}` : '') +
       ` · r ${fmtLen(
         mean((h) => h.rPort),
         'mm',
@@ -839,9 +841,12 @@ function renderPhotoGroups() {
       hdot.style.background = PHOTO_COLORS[role];
       const htxt = document.createElement('span');
       htxt.className = 'photo-group-text';
+      const seen = typeof h.seenFraction === 'number' ? h.seenFraction : null;
       htxt.textContent =
         `#${e.analysis.holes.indexOf(h) + 1} · r ${fmtLen(h.rPort, 'mm')}–${fmtLen(h.rOuterMM, 'mm')}` +
-        ` · w ${fmtLen(h.wPort, 'mm')} · ${fmtLen(h.areaMM, 'mm')}mm²`;
+        ` · w ${fmtLen(h.wPort, 'mm')} · ${fmtLen(h.areaMM, 'mm')}mm²` +
+        (h.pooled && seen !== null && seen < 0.97 ? ` · ${Math.round(seen * 100)}% seen, rest from ring` : '') +
+        (h.pooled === false ? ' · odd one out, left as measured' : '');
       const hsel = document.createElement('select');
       hsel.className = 'small';
       PHOTO_LABELS.forEach((L) => {
@@ -936,6 +941,8 @@ function updatePhotoUI() {
   if (sens && e) sens.value = String(e.sensitivity);
   const maskTog = document.getElementById('photoMaskToggle');
   if (maskTog) maskTog.checked = photoShowMask;
+  const poolTog = document.getElementById('photoPoolToggle');
+  if (poolTog) poolTog.checked = photoPool;
 
   renderPhotoGroups();
 
@@ -1004,7 +1011,22 @@ function drawPhotoCanvas() {
       const role = photoHoleRole(e, h);
       const col = PHOTO_COLORS[role];
       const lit = photoHighlight === h.id;
+      // Solid = the edge actually seen in this photo. Dashed = the shape pooled from the rest
+      // of the ring where shadow hid this port's own edge. Inference must never be drawn as
+      // though it were a measurement.
       drawPolyImg(ctx, h.contour, hexToRgba(col, lit ? 0.55 : role === 'ignore' ? 0.1 : 0.28), lit ? '#fff' : col);
+      if (h.recoveredContour && h.recoveredContour.length > 2) {
+        const pts = h.recoveredContour.map(photoImageToCanvasPt);
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        pts.forEach((q, k) => (k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+        ctx.closePath();
+        ctx.strokeStyle = lit ? '#fff' : col;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
       // number each hole so the readout rows and the picture can be matched up
       const q = photoImageToCanvasPt(h.centroidImg);
       ctx.fillStyle = '#0b0f14';
@@ -3094,6 +3116,16 @@ function wireStaticControls() {
       'change',
       (e) => {
         photoShowMask = e.target.checked;
+        drawPhotoCanvas();
+      },
+    ],
+    [
+      'photoPoolToggle',
+      'change',
+      (e) => {
+        photoPool = e.target.checked;
+        photos.filter(Boolean).forEach((entry) => runPhotoAnalysis(entry));
+        updatePhotoUI();
         drawPhotoCanvas();
       },
     ],

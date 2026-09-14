@@ -2,3 +2,8 @@ node_modules/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Local working area: real valve photos and the debug output rendered from them.
+# This repo is public and publishes to GitHub Pages - nothing in here should ever
+# be committed, so drop test photos here rather than anywhere else in the tree.
+scratch/

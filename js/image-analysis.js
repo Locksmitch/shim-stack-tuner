@@ -1004,6 +1004,264 @@ export function measureHole(labels, id, width, height, face, mmPerPx, opts = {})
   };
 }
 
+/* ---- recovering a port that shadow ate part of ---------------------------------
+   There is a hard floor to reading a port off its own pixels: where the shade inside it is
+   as dark as the metal, the edge simply is not in the picture, and no threshold, gradient or
+   growth rule can conjure it back. The information is in the OTHER ports.
+
+   A valve's ports are one port machined n times round a circle, so they are congruent under
+   rotation about the valve centre. The shadow is not: the light sits at a fixed angle in
+   image space while the ports sit at different angles around the face, so each port is shaded
+   on a different part of ITSELF. Rotate them onto each other and the gap in one is covered by
+   another. Pooling the ring therefore reconstructs the whole port, whatever its shape - round,
+   oval, peanut, kidney - with no assumption about what that shape is.
+
+   Everything below happens in a shared polar grid (radius from the valve centre, angle
+   measured from each port's own centre), which is exactly the frame that makes congruent
+   ports coincide. Clipping only ever REMOVES area, so a cell backed by a couple of ports is
+   real even if most ports lost it; the vote threshold is set low for that reason, and a port
+   that contributes area OUTSIDE the consensus is not clipped but different, so it is thrown
+   out and reported rather than blended in. */
+
+// Radial reach of one hole, for sizing the shared grid.
+export function holeRadialRange(labels, id, width, height, face) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  let n = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (labels[y * width + x] !== id) continue;
+      const f = face.toFace(x, y);
+      const r = Math.hypot(f.x, f.y);
+      if (r < lo) lo = r;
+      if (r > hi) hi = r;
+      n++;
+    }
+  }
+  return n ? { lo, hi, n } : null;
+}
+
+// Pool one ring of ports into a single consensus shape. `ring` is the measured holes;
+// `polar` the map from collectHolePolar. Returns the shape on its grid plus, per hole, how
+// much of the consensus that hole actually saw and how much it put outside it.
+export function recoverRingShape(ring, src, opts = {}) {
+  if (ring.length < 3) return null;
+  const { labels, width, height, face } = src;
+  const rBins = opts.rBins ?? 120;
+  const aBins = opts.aBins ?? 168;
+
+  // grid spans the ring's full radial reach and a generous angular window
+  let rLo = Infinity;
+  let rHi = -Infinity;
+  let halfSpan = 0;
+  for (const h of ring) {
+    const range = holeRadialRange(labels, h.id, width, height, face);
+    if (!range) return null;
+    rLo = Math.min(rLo, range.lo);
+    rHi = Math.max(rHi, range.hi);
+    halfSpan = Math.max(halfSpan, h.angularSpan / 2);
+  }
+  const rPad = 0.06 * (rHi - rLo);
+  rLo = Math.max(0, rLo - rPad);
+  rHi += rPad;
+  const aHalf = Math.min(Math.PI / 2, halfSpan * 1.9 + 0.02);
+  const dr = (rHi - rLo) / rBins;
+  const da = (2 * aHalf) / aBins;
+
+  /* Rasterise by GATHERING - walk the polar grid and ask the image what is at each cell -
+     rather than scattering the hole's pixels into cells. Scattering silently loses area
+     wherever a polar cell is smaller than a pixel, which happens on the INNER ring (its cells
+     are ~1px, while the outer ring's catch two or three pixels each) and quietly shrank every
+     inner port by about 15%, even in a photo with no shadow at all. */
+  const masks = ring.map((h) => {
+    const theta = Math.atan2(h.centroidFace.y, h.centroidFace.x);
+    const m = new Uint8Array(rBins * aBins);
+    let area = 0;
+    for (let i = 0; i < rBins; i++) {
+      const r = rLo + (i + 0.5) * dr;
+      for (let j = 0; j < aBins; j++) {
+        const phi = -aHalf + (j + 0.5) * da + theta;
+        const p = face.toImage(r * Math.cos(phi), r * Math.sin(phi));
+        const x = Math.round(p.x);
+        const y = Math.round(p.y);
+        if (x < 0 || y < 0 || x >= width || y >= height) continue;
+        if (labels[y * width + x] !== h.id) continue;
+        m[i * aBins + j] = 1;
+        area++;
+      }
+    }
+    return { hole: h, theta, mask: m, area };
+  });
+
+  // The least-clipped port is the best reference: shade only ever takes area away, so the
+  // biggest one has lost the least and its centroid is the least dragged off centre.
+  const ref = masks.reduce((a, b) => (b.area > a.area ? b : a));
+  const maxShift = Math.max(2, Math.round(0.3 * aBins));
+  for (const m of masks) {
+    if (m === ref) {
+      m.shift = 0;
+      continue;
+    }
+    let best = 0;
+    let bestScore = -1;
+    for (let s = -maxShift; s <= maxShift; s++) {
+      let score = 0;
+      for (let i = 0; i < rBins; i++) {
+        const row = i * aBins;
+        for (let j = 0; j < aBins; j++) {
+          if (!m.mask[row + j]) continue;
+          const jj = j + s;
+          if (jj >= 0 && jj < aBins && ref.mask[row + jj]) score++;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    m.shift = best;
+  }
+  const shifted = masks.map((m) => {
+    if (!m.shift) return m.mask;
+    const out = new Uint8Array(rBins * aBins);
+    for (let i = 0; i < rBins; i++) {
+      const row = i * aBins;
+      for (let j = 0; j < aBins; j++) {
+        const jj = j + m.shift;
+        if (m.mask[row + j] && jj >= 0 && jj < aBins) out[row + jj] = 1;
+      }
+    }
+    return out;
+  });
+
+  /* The shape is the UNION of the ports that can be trusted, because shade subtracts and
+     never adds: a cell any sound port saw is real even if every other port lost it. A vote
+     would be wrong here - it throws away the parts of the port only one port happened to have
+     in the light, and it is the LEAST clipped port that holds most of those.
+
+     So "trusted" cannot mean "agrees with the majority" either. The complete port is
+     necessarily bigger than its clipped neighbours, and judging it against them marks the one
+     good port as the odd one out and pools the ring down to the clipped shape. What actually
+     separates a sound port from a leak is CORROBORATION: a complete port contains its clipped
+     neighbours, so nearly all of it is backed by somebody else, whereas a port that has burst
+     out into the valve face carries a chunk no other port has anywhere. */
+  const votes = new Int16Array(rBins * aBins);
+  for (const s of shifted) for (let c = 0; c < votes.length; c++) votes[c] += s[c];
+
+  const per = new Map();
+  const outliers = [];
+  const support = masks.map((m, k) => {
+    let own = 0;
+    let backed = 0;
+    for (let c = 0; c < votes.length; c++) {
+      if (!shifted[k][c]) continue;
+      own++;
+      if (votes[c] > 1) backed++; // some OTHER port covers this cell too
+    }
+    return own ? backed / own : 0;
+  });
+  masks.forEach((m, k) => {
+    if (support[k] < 0.8) outliers.push(m.hole.id);
+  });
+  const trusted = masks.map((m, k) => ({ m, k })).filter(({ k }) => support[k] >= 0.8);
+  const contributors = trusted.length >= 2 ? trusted : masks.map((m, k) => ({ m, k }));
+
+  // Two contributors, not one. A plain union would take every port's ragged last pixel and
+  // grow the shape by roughly the perimeter - about 2% on a six-port ring, all of it
+  // outwards. Asking for a second port to agree drops that fringe while still recovering a
+  // chunk that most ports lost, because the ports are shaded in different places and any
+  // given part of the port is in the light for most of them.
+  const need = contributors.length >= 3 ? 2 : 1;
+  const cVotes = new Int16Array(rBins * aBins);
+  for (const { k } of contributors) for (let c = 0; c < cVotes.length; c++) cVotes[c] += shifted[k][c];
+  const consensus = new Uint8Array(rBins * aBins);
+  for (let c = 0; c < consensus.length; c++) consensus[c] = cVotes[c] >= need ? 1 : 0;
+
+  masks.forEach((m, k) => {
+    let inside = 0;
+    let outside = 0;
+    for (let c = 0; c < consensus.length; c++) {
+      if (!shifted[k][c]) continue;
+      if (consensus[c]) inside++;
+      else outside++;
+    }
+    const own = inside + outside;
+    per.set(m.hole.id, { inside, outside, own, stray: own ? outside / own : 0, support: support[k] });
+  });
+  if (trusted.length < 2) outliers.length = 0; // nothing to cross-check against; pool them all
+  let cells = 0;
+  for (let c = 0; c < consensus.length; c++) cells += consensus[c];
+  if (!cells) return null;
+  for (const m of masks) {
+    const p = per.get(m.hole.id);
+    p.seen = cells ? p.inside / cells : 0;
+  }
+  return { consensus, rBins, aBins, rLo, dr, aHalf, da, per, outliers, refId: ref.hole.id, ringSize: ring.length };
+}
+
+// Geometry of a pooled shape, in the same terms (and with the same area identity) as a hole
+// measured directly: area is integrated exactly over the polar cells, r.dr.dphi.
+export function consensusGeometry(shape, mmPerPx) {
+  const { consensus, rBins, aBins, rLo, dr, da } = shape;
+  let areaPx = 0;
+  let rInner = Infinity;
+  let rOuter = -Infinity;
+  const profile = [];
+  for (let i = 0; i < rBins; i++) {
+    let n = 0;
+    for (let j = 0; j < aBins; j++) if (consensus[i * aBins + j]) n++;
+    const r0 = rLo + i * dr;
+    const r1 = r0 + dr;
+    if (n) {
+      areaPx += ((n * da * (r1 * r1 - r0 * r0)) / 2) * 1;
+      if (r0 < rInner) rInner = r0;
+      if (r1 > rOuter) rOuter = r1;
+      profile.push(n * da * ((r0 + r1) / 2) * mmPerPx);
+    }
+  }
+  if (!isFinite(rInner)) return null;
+  // The true edge lies somewhere inside the first and last occupied bin, so take their
+  // CENTRES rather than their outer faces - using the faces adds a whole bin to d.port at
+  // each end, which is a systematic over-read of a couple of tenths of a millimetre.
+  rInner += dr / 2;
+  rOuter -= dr / 2;
+  const areaMM = areaPx * mmPerPx * mmPerPx;
+  const dPort = (rOuter - rInner) * mmPerPx;
+  return {
+    rPort: rInner * mmPerPx,
+    rOuterMM: rOuter * mmPerPx,
+    rMidMM: ((rInner + rOuter) / 2) * mmPerPx,
+    dPort,
+    wPort: dPort > 1e-9 ? areaMM / dPort : 0,
+    areaMM,
+    equivDiaMM: 2 * Math.sqrt(areaMM / Math.PI),
+    widthInner: profile.length ? profile[0] : 0,
+    widthOuter: profile.length ? profile[profile.length - 1] : 0,
+    widthMax: profile.length ? Math.max(...profile) : 0,
+  };
+}
+
+// The pooled shape drawn back at one port's own position, for the overlay.
+export function consensusContour(shape, theta, face, up) {
+  const { consensus, rBins, aBins, rLo, dr, aHalf, da } = shape;
+  const labels = new Int32Array(rBins * aBins).fill(-1);
+  let start = -1;
+  for (let c = 0; c < consensus.length; c++) {
+    if (!consensus[c]) continue;
+    labels[c] = 0;
+    if (start < 0) start = c;
+  }
+  if (start < 0) return [];
+  // trace on the (r, phi) raster, then map each step back through the face transform
+  const traced = traceContour(labels, 0, aBins, rBins, start);
+  return traced.map((p) => {
+    const r = rLo + (p.y + 0.5) * dr;
+    const phi = -aHalf + (p.x + 0.5) * da + theta;
+    const img = face.toImage(r * Math.cos(phi), r * Math.sin(phi));
+    return { x: img.x * up, y: img.y * up };
+  });
+}
+
 // Ports sit in concentric rings; split the holes on gaps in mid-radius that dwarf the
 // spread within a ring. Rings are only a convenience for bulk-labelling - every hole
 // carries its own role, so the user can always override one by clicking it.
@@ -1238,17 +1496,51 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   // Ports on a ring are the same port repeated, so if they come back different sizes the
   // segmentation lost part of some of them - which is what happens when shade inside a port
   // is as dark as the metal (you are seeing down the bore, not a shadow on paper, and no
-  // brightness rule can separate the two). Say so rather than quietly under-reporting.
-  for (const g of groups) {
-    if (g.holes.length < 3) continue;
-    const areas = g.holes.map((h) => h.areaMM);
-    const mean = areas.reduce((s, a) => s + a, 0) / areas.length;
-    const sd = Math.sqrt(areas.reduce((s, a) => s + (a - mean) * (a - mean), 0) / areas.length);
-    if (mean > 0 && sd / mean > 0.18) {
-      warnings.push(
-        'Ports on one ring came out different sizes — they should be identical, so shading is eating into some of them. Light the valve more evenly (or from straight above) and re-shoot.',
-      );
-      break;
+  // brightness rule can separate the two). Rather than just report that, pool the ring and
+  // put back what the shadow took: see recoverRingShape above for why that works.
+  if (opts.pool !== false) {
+    const src = { labels: grownLabels, width: W, height: H, face };
+    for (const g of groups) {
+      if (g.holes.length < 3) continue;
+      // Only pool a ring that disagrees with itself. If its ports already measure the same,
+      // there is nothing hidden to recover and pooling can only add its own bias - and worse,
+      // if the de-skew is off (a contact shadow faking a tilt) the ports are no longer truly
+      // congruent, so combining them inflates the shape. Leave a self-consistent ring alone.
+      const areas = g.holes.map((h) => h.areaMM);
+      const mean = areas.reduce((s, a) => s + a, 0) / areas.length;
+      const sd = Math.sqrt(areas.reduce((s, a) => s + (a - mean) * (a - mean), 0) / areas.length);
+      if (!(mean > 0) || sd / mean < 0.08) continue;
+      const shape = recoverRingShape(g.holes, src);
+      if (!shape) continue;
+      const geom = consensusGeometry(shape, mmPerPx);
+      if (!geom || !(geom.areaMM > 0)) continue;
+      const strays = shape.outliers.filter((id) => g.holes.some((h) => h.id === id));
+      for (const h of g.holes) {
+        const p = shape.per.get(h.id);
+        const odd = strays.includes(h.id);
+        h.measuredOnly = {
+          rPort: h.rPort,
+          dPort: h.dPort,
+          wPort: h.wPort,
+          areaMM: h.areaMM,
+        };
+        h.seenFraction = p ? p.seen : 0;
+        h.strayFraction = p ? p.stray : 0;
+        h.pooled = !odd;
+        if (odd) continue; // shape differs from its ring-mates: leave it as measured, flagged
+        Object.assign(h, geom);
+        h.recoveredContour = consensusContour(shape, Math.atan2(h.centroidFace.y, h.centroidFace.x), face, 1);
+      }
+      g.pooled = { from: g.holes.length - strays.length, of: g.holes.length, strays };
+      if (strays.length)
+        warnings.push(
+          `${strays.length} hole${strays.length === 1 ? '' : 's'} on one ring ${strays.length === 1 ? 'is' : 'are'} a different shape from the rest — left as measured, check the outline${strays.length === 1 ? '' : 's'}.`,
+        );
+      const worst = Math.min(...g.holes.filter((h) => h.pooled).map((h) => h.seenFraction ?? 1));
+      if (isFinite(worst) && worst < 0.85)
+        warnings.push(
+          `Shadow hid part of some ports (as little as ${Math.round(worst * 100)}% of one was visible); their shape was reconstructed from the other ports on the same ring.`,
+        );
     }
   }
 
@@ -1290,7 +1582,10 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
   const toImg = (p) => ({ x: p.x * up, y: p.y * up });
   const dress = (h) => ({
     ...h,
+    // what the threshold actually saw, kept separate from the pooled outline so the UI can
+    // draw "seen" and "reconstructed" differently and never pass one off as the other
     contour: h.contour.map(toImg),
+    recoveredContour: h.recoveredContour ? h.recoveredContour.map(toImg) : null,
     centroidImg: toImg(face.toImage(h.centroidFace.x, h.centroidFace.y)),
   });
 
@@ -1316,6 +1611,7 @@ export function analyseValvePhoto(imageData, dValveMM, opts = {}) {
       meanAreaMM: g.meanAreaMM,
       meanRoundness: g.meanRoundness,
       holeIds: g.holes.map((h) => h.id),
+      pooled: g.pooled || null,
     })),
     // preview mask
     preview: { width: W, height: H, classes, up },

@@ -21,6 +21,8 @@ import {
   fitEllipseFixedCenter,
   rimCoverage,
   growHolesIntoShade,
+  recoverRingShape,
+  consensusGeometry,
   analyseValvePhoto,
 } from '../js/image-analysis.js';
 
@@ -321,6 +323,100 @@ describe('growHolesIntoShade', () => {
     let after = 0;
     for (let i = 0; i < grown.length; i++) if (grown[i] === 0) after++;
     assert.equal(after, core, 'a hole with no shade around it must not grow');
+  });
+});
+
+describe('recoverRingShape', () => {
+  // A ring of 6 identical sector ports, each with a different slice hidden by "shadow" - the
+  // physical case, since the light sits at a fixed angle while the ports sit at many.
+  function ringImage({ clip = [], R = 190, ring = { count: 6, halfAngle: 0.18, rInner: 100, rOuter: 155 } } = {}) {
+    const W = 480;
+    const H = 480;
+    const cx = 240;
+    const cy = 240;
+    const labels = new Int32Array(W * H).fill(-1);
+    const holes = [];
+    for (let k = 0; k < ring.count; k++) {
+      const a0 = (k * 2 * Math.PI) / ring.count - Math.PI / 2;
+      const cut = clip[k] || null;
+      let n = 0;
+      let sx = 0;
+      let sy = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const dx = x - cx;
+          const dy = y - cy;
+          const rr = Math.hypot(dx, dy);
+          let da = Math.atan2(dy, dx) - a0;
+          while (da > Math.PI) da -= 2 * Math.PI;
+          while (da < -Math.PI) da += 2 * Math.PI;
+          if (Math.abs(da) > ring.halfAngle || rr < ring.rInner || rr > ring.rOuter) continue;
+          if (cut === 'inner' && rr < ring.rInner + 22) continue;
+          if (cut === 'outer' && rr > ring.rOuter - 22) continue;
+          if (cut === 'left' && da < -ring.halfAngle + 0.09) continue;
+          if (cut === 'right' && da > ring.halfAngle - 0.09) continue;
+          labels[y * W + x] = k;
+          n++;
+          sx += dx;
+          sy += dy;
+        }
+      }
+      holes.push({
+        id: k,
+        angularSpan: 2 * ring.halfAngle,
+        centroidFace: { x: sx / n, y: sy / n },
+      });
+    }
+    return { labels, W, H, holes, face: makeFaceSpace({ x: cx, y: cy }, 0, 1), ring };
+  }
+
+  test('reconstructs the whole port when each one is clipped somewhere different', () => {
+    const truth = ringImage();
+    const clipped = ringImage({ clip: [null, 'inner', 'outer', 'left', 'right', 'inner'] });
+    const mmPerPx = 50 / (2 * 190);
+    const src = { labels: clipped.labels, width: clipped.W, height: clipped.H, face: clipped.face };
+    const shape = recoverRingShape(clipped.holes, src);
+    assert.ok(shape, 'expected a pooled shape');
+    const got = consensusGeometry(shape, mmPerPx);
+
+    const r = truth.ring;
+    const expW = 2 * r.halfAngle * ((r.rInner + r.rOuter) / 2) * mmPerPx;
+    const expD = (r.rOuter - r.rInner) * mmPerPx;
+    assert.ok(Math.abs(got.dPort - expD) < 0.3, `d.port ${got.dPort} vs ${expD}`);
+    assert.ok(Math.abs(got.wPort - expW) < 0.3, `w.port ${got.wPort} vs ${expW}`);
+    assert.ok(Math.abs(got.rPort - r.rInner * mmPerPx) < 0.3, `r.port ${got.rPort}`);
+    // the untouched port should read as fully seen, a clipped one as clearly less
+    assert.ok(shape.per.get(0).seen > 0.95, `unclipped port seen ${shape.per.get(0).seen}`);
+    assert.ok(shape.per.get(1).seen < 0.9, `clipped port seen ${shape.per.get(1).seen}`);
+  });
+
+  test('does not let a genuinely different port redefine the ring', () => {
+    // port 3 is a much smaller hole at the same radius - not clipped, just different
+    const img = ringImage();
+    for (let i = 0; i < img.labels.length; i++) {
+      if (img.labels[i] !== 3) continue;
+      const x = i % img.W;
+      const y = (i / img.W) | 0;
+      const rr = Math.hypot(x - 240, y - 240);
+      if (rr < 118 || rr > 137) img.labels[i] = -1;
+    }
+    const src = { labels: img.labels, width: img.W, height: img.H, face: img.face };
+    const shape = recoverRingShape(img.holes, src);
+    assert.ok(shape);
+    // it is a subset of its ring-mates, so it is treated as clipped, not as the shape:
+    // the pooled result must still match the majority port, not shrink to the odd one
+    const got = consensusGeometry(shape, 50 / (2 * 190));
+    const r = img.ring;
+    const expD = (r.rOuter - r.rInner) * (50 / (2 * 190));
+    assert.ok(Math.abs(got.dPort - expD) < 0.3, `the odd port must not shrink the ring: ${got.dPort} vs ${expD}`);
+  });
+
+  test('leaves a ring of fewer than three ports alone', () => {
+    const img = ringImage({ ring: { count: 2, halfAngle: 0.18, rInner: 100, rOuter: 155 } });
+    assert.equal(
+      recoverRingShape(img.holes, { labels: img.labels, width: img.W, height: img.H, face: img.face }),
+      null,
+    );
   });
 });
 
